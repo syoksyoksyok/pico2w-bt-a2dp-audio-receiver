@@ -50,16 +50,19 @@
 // PWM 簡易 DAC 設定（PWM/PIO を使用する場合）
 // ============================================================================
 
-#ifdef USE_PWM_OUTPUT
-
 // PWM 出力ピン（モノラル出力）
+#ifndef PWM_AUDIO_PIN
 #define PWM_AUDIO_PIN    26
-
-// サンプリングレート（Hz）
-#define AUDIO_SAMPLE_RATE    44100
+#endif
 
 // PWM 解像度（ビット）
+#ifndef PWM_RESOLUTION_BITS
 #define PWM_RESOLUTION_BITS  8
+#endif
+
+#ifdef USE_PWM_OUTPUT
+// サンプリングレート（Hz）
+#define AUDIO_SAMPLE_RATE    44100
 
 // チャンネル数（モノラル）
 #define AUDIO_CHANNELS        1

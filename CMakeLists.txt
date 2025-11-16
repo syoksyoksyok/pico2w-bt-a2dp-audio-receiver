@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.13)
 
+# Pico 2W (RP2350 + CYW43) 設定
+set(PICO_BOARD pico2_w)
+
+# picotoolのビルドをスキップ（mbedtlsエラー回避）
+set(SKIP_PICO_PICOTOOL 1)
+
 # Pico SDK のパスを設定（環境変数 PICO_SDK_PATH から取得）
 set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
 
@@ -28,6 +34,8 @@ add_executable(pico2w_bt_a2dp_receiver
 # インクルードディレクトリ
 target_include_directories(pico2w_bt_a2dp_receiver PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/src
+    ${PICO_SDK_PATH}/lib/btstack/src
+    ${PICO_SDK_PATH}/lib/btstack/src/classic
 )
 
 # リンクするライブラリ
@@ -35,11 +43,11 @@ target_link_libraries(pico2w_bt_a2dp_receiver
     pico_stdlib
     pico_cyw43_arch_none
     pico_btstack_classic
-    pico_btstack_ble
+    pico_btstack_ble  # CYW43ドライバーが必要とするため有効化（SDK 2.2.0パッチ済み）
     pico_btstack_cyw43
     pico_btstack_sbc_encoder
     pico_btstack_sbc_decoder
-    hardware_i2s
+    # hardware_i2s  # SDK 2.2.0には存在しないため無効化
     hardware_dma
     hardware_pwm
     hardware_pio

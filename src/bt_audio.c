@@ -29,7 +29,7 @@ static btstack_sbc_mode_t sbc_mode = SBC_MODE_STANDARD;
 
 // PCM 出力バッファ
 #define SBC_MAX_CHANNELS 2
-#define SBC_MAX_SAMPLES_PER_FRAME 128
+// SBC_MAX_SAMPLES_PER_FRAME is already defined in btstack headers
 static int16_t pcm_buffer[SBC_MAX_CHANNELS * SBC_MAX_SAMPLES_PER_FRAME];
 
 // A2DP コネクション
@@ -43,7 +43,7 @@ static uint8_t local_seid = 1;
 
 static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
 static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
-static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate);
+static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context);
 
 // ============================================================================
 // Bluetooth A2DP 初期化
@@ -76,7 +76,7 @@ bool bt_audio_init(void) {
     memset(sdp_avdtp_sink_service_buffer, 0, sizeof(sdp_avdtp_sink_service_buffer));
     a2dp_sink_create_sdp_record(sdp_avdtp_sink_service_buffer,
                                  0x10001,
-                                 AVDTP_SINK_FEATURE_PLAYER | AVDTP_SINK_FEATURE_AMPLIFIER,
+                                 AVDTP_SINK_FEATURE_MASK_SPEAKER | AVDTP_SINK_FEATURE_MASK_AMPLIFIER,
                                  NULL, NULL);
     sdp_register_service(sdp_avdtp_sink_service_buffer);
 
@@ -152,7 +152,9 @@ void bt_audio_set_pcm_callback(pcm_data_callback_t callback) {
 // PCM データハンドラー（SBC デコーダーから呼ばれる）
 // ============================================================================
 
-static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate) {
+static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context) {
+    UNUSED(context);
+
     // サンプリングレートを更新
     if (current_sample_rate != (uint32_t)sample_rate) {
         current_sample_rate = (uint32_t)sample_rate;
@@ -274,12 +276,14 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
     if (packet_type != HCI_EVENT_PACKET) return;
 
     switch (hci_event_packet_get_type(packet)) {
-        case HCI_EVENT_PIN_CODE_REQUEST:
+        case HCI_EVENT_PIN_CODE_REQUEST: {
             // PIN コードリクエスト（必要に応じて処理）
             printf("PIN code request - using default: 0000\n");
-            hci_event_pin_code_request_get_bd_addr(packet, NULL);
-            gap_pin_code_response((uint8_t*)"0000");
+            bd_addr_t addr;
+            hci_event_pin_code_request_get_bd_addr(packet, addr);
+            gap_pin_code_response(addr, "0000");
             break;
+        }
 
         default:
             break;

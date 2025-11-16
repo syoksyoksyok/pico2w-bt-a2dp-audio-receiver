@@ -92,14 +92,24 @@ cd pico2w-bt-a2dp-audio-receiver
 
 ### 5. ビルド
 
+**重要**: ビルド前に Pico SDK のパスを環境変数に設定してください。
+
 ```bash
+export PICO_SDK_PATH=~/pico/pico-sdk  # Pico SDK のパスを指定
+cd ~/pico2w-bt-a2dp-audio-receiver
+rm -rf build
 mkdir build
 cd build
-cmake ..
-make
+cmake -DPICO_NO_PICOTOOL=1 ..
+make -j4
 ```
 
-ビルドが成功すると、`pico2w_bt_a2dp_receiver.uf2` ファイルが生成されます。
+ビルドが成功すると、`build/pico2w_bt_a2dp_receiver.uf2` ファイルが生成されます。
+
+**注意**:
+- `PICO_SDK_PATH` は実際の Pico SDK のインストール先に合わせて変更してください
+- `-DPICO_NO_PICOTOOL=1` フラグは picotool のビルドをスキップします（mbedtls エラー回避）
+- `-j4` は並列ビルドでビルド時間を短縮します
 
 ### 6. Pico 2 W への書き込み
 
