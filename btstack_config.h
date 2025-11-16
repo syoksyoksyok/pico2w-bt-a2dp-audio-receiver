@@ -7,11 +7,16 @@
 #define BTSTACK_CONFIG_H
 
 // ====================================================================================
-// BTstack features - classic only, no BLE
+// BTstack features
 // ====================================================================================
 
+// Avoid redefinition warnings (Pico SDK defines this via command line)
+#ifndef ENABLE_CLASSIC
 #define ENABLE_CLASSIC
-// #define ENABLE_BLE  // Disabled - not needed for A2DP audio receiver
+#endif
+
+// BLE must be enabled for Pico W BTstack even if we only use Classic Bluetooth
+#define ENABLE_BLE
 
 // ====================================================================================
 // Bluetooth profiles
@@ -44,6 +49,9 @@
 
 // Link Key DB size
 #define NVM_NUM_LINK_KEYS 4
+
+// ATT DB size (required for BLE)
+#define MAX_ATT_DB_SIZE 512
 
 // Logging
 #define ENABLE_LOG_INFO
