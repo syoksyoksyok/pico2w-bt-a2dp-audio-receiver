@@ -43,7 +43,7 @@ target_link_libraries(pico2w_bt_a2dp_receiver
     pico_stdlib
     pico_cyw43_arch_none
     pico_btstack_classic
-    pico_btstack_ble
+    # pico_btstack_ble  # BLE無効化（Classic Bluetoothのみ使用）
     pico_btstack_cyw43
     pico_btstack_sbc_encoder
     pico_btstack_sbc_decoder
@@ -66,4 +66,11 @@ target_compile_options(pico2w_bt_a2dp_receiver PRIVATE
     -Wall
     -Wextra
     -O2
+)
+
+# BLE機能を無効化（Classic Bluetoothのみ使用）
+target_compile_definitions(pico2w_bt_a2dp_receiver PRIVATE
+    ENABLE_BLE=0
+    ENABLE_LE_PERIPHERAL=0
+    ENABLE_LE_CENTRAL=0
 )
