@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.13)
 
-# Pico 2W (RP2350) をターゲットボードとして設定（SDK初期化の前に設定が必要）
-set(PICO_BOARD pico2_w)
+# Pico 2W (RP2350 + CYW43) 設定
+# SDK 2.0にはpico2_w定義がないため、pico_wボードでrp2350プラットフォームを使用
+set(PICO_BOARD pico_w)
+set(PICO_PLATFORM rp2350)
 
 # Pico SDK のパスを設定（環境変数 PICO_SDK_PATH から取得）
 set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
