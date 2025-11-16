@@ -46,8 +46,9 @@
 // Link Key database for pairing
 #define NVM_NUM_LINK_KEYS 2
 
-// BLE ATT DB (minimal, required by pico_btstack_ble library)
+// BLE settings (minimal, required by pico_btstack_ble library)
 #define MAX_ATT_DB_SIZE 512
+#define NVM_NUM_DEVICE_DB_ENTRIES 1
 
 // CYW43 (Pico W/2W wireless chip) specific settings
 #define HCI_OUTGOING_PRE_BUFFER_SIZE 4
