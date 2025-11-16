@@ -47,7 +47,7 @@ target_link_libraries(pico2w_bt_a2dp_receiver
     pico_btstack_cyw43
     pico_btstack_sbc_encoder
     pico_btstack_sbc_decoder
-    hardware_i2s
+    # hardware_i2s  # SDK 2.2.0には存在しないため無効化
     hardware_dma
     hardware_pwm
     hardware_pio
