@@ -81,14 +81,18 @@ static void dma_irq_handler(void) {
 // ============================================================================
 
 bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits_per_sample, uint8_t channels) {
+    printf("[I2S] Starting initialization...\n");
+
     if (bits_per_sample != 16 || channels != 2) {
         printf("ERROR: I2S only supports 16-bit stereo audio\n");
         return false;
     }
 
     current_sample_rate = sample_rate;
+    printf("[I2S] Sample rate: %lu Hz\n", sample_rate);
 
     // バッファ初期化
+    printf("[I2S] Initializing buffers...\n");
     memset((void *)audio_buffer, 0, sizeof(audio_buffer));
     memset((void *)dma_buffers, 0, sizeof(dma_buffers));
     write_pos = 0;
@@ -100,12 +104,17 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits_per_sample, uint8_t c
     is_playing = false;
 
     // PIOプログラムをロード
+    printf("[I2S] Loading PIO program...\n");
     uint offset = pio_add_program(pio, &audio_i2s_program);
+    printf("[I2S] PIO program loaded at offset %u\n", offset);
 
     // ステートマシン取得
+    printf("[I2S] Claiming PIO state machine...\n");
     sm = pio_claim_unused_sm(pio, true);
+    printf("[I2S] Claimed state machine %u\n", sm);
 
     // PIOピン設定
+    printf("[I2S] Configuring GPIO pins...\n");
     // OUT pin: DATA
     pio_gpio_init(pio, I2S_DATA_PIN);
     pio_sm_set_consecutive_pindirs(pio, sm, I2S_DATA_PIN, 1, true);
@@ -114,8 +123,10 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits_per_sample, uint8_t c
     pio_gpio_init(pio, I2S_LRCLK_PIN);
     pio_gpio_init(pio, I2S_BCLK_PIN);
     pio_sm_set_consecutive_pindirs(pio, sm, I2S_LRCLK_PIN, 2, true);
+    printf("[I2S] GPIO pins configured\n");
 
     // ステートマシン設定
+    printf("[I2S] Configuring state machine...\n");
     pio_sm_config sm_config = audio_i2s_program_get_default_config(offset);
 
     // OUT pins設定（DATA）
@@ -140,15 +151,20 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits_per_sample, uint8_t c
     sm_config_set_clkdiv(&sm_config, div);
 
     // ステートマシン初期化
+    printf("[I2S] Initializing state machine...\n");
     pio_sm_init(pio, sm, offset, &sm_config);
+    printf("[I2S] State machine initialized\n");
 
     printf("I2S initialized: %lu Hz, %u-bit, %u-ch\n", sample_rate, bits_per_sample, channels);
     printf("BCLK: %.0f Hz, PIO clock div: %.2f\n", bclk_freq, div);
 
     // DMAチャネル取得
+    printf("[I2S] Claiming DMA channel...\n");
     dma_chan = dma_claim_unused_channel(true);
+    printf("[I2S] DMA channel %d claimed\n", dma_chan);
 
     // DMA設定
+    printf("[I2S] Configuring DMA...\n");
     dma_channel_config dma_config = dma_channel_get_default_config(dma_chan);
     channel_config_set_transfer_data_size(&dma_config, DMA_SIZE_16);
     channel_config_set_read_increment(&dma_config, true);
@@ -156,6 +172,7 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits_per_sample, uint8_t c
     channel_config_set_dreq(&dma_config, pio_get_dreq(pio, sm, true));
 
     // DMA転送設定
+    printf("[I2S] Configuring DMA transfer...\n");
     dma_channel_configure(
         dma_chan,
         &dma_config,
@@ -166,9 +183,11 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits_per_sample, uint8_t c
     );
 
     // DMA割り込み設定
+    printf("[I2S] Setting up DMA interrupt...\n");
     dma_channel_set_irq0_enabled(dma_chan, true);
     irq_set_exclusive_handler(DMA_IRQ_0, dma_irq_handler);
     irq_set_enabled(DMA_IRQ_0, true);
+    printf("[I2S] DMA interrupt configured\n");
 
     printf("I2S output initialized successfully\n");
     printf("Pin configuration:\n");

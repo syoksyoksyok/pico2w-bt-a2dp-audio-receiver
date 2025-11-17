@@ -56,43 +56,59 @@ bool bt_audio_init(void) {
     printf("\n========================================\n");
     printf("Pico 2W Bluetooth A2DP Audio Receiver\n");
     printf("========================================\n");
-    printf("Initializing Bluetooth...\n");
+    printf("[BT] Initializing Bluetooth...\n");
 
     // CYW43 初期化（Pico W の Wi-Fi/Bluetooth チップ）
+    printf("[BT] Initializing CYW43...\n");
     if (cyw43_arch_init()) {
         printf("ERROR: Failed to initialize CYW43\n");
         return false;
     }
-    printf("CYW43 initialized\n");
+    printf("[BT] CYW43 initialized\n");
 
     // BTstack run loop の初期化
+    printf("[BT] Initializing BTstack run loop...\n");
     btstack_run_loop_init(btstack_run_loop_embedded_get_instance());
+    printf("[BT] BTstack run loop initialized\n");
 
     // HCI の初期化
+    printf("[BT] Initializing HCI...\n");
     hci_init(hci_transport_cyw43_instance(), NULL);
+    printf("[BT] HCI initialized\n");
 
     // HCI packet handler を登録
+    printf("[BT] Registering HCI event handler...\n");
     hci_event_callback_registration.callback = &packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
+    printf("[BT] HCI event handler registered\n");
 
+    printf("[BT] Initializing L2CAP...\n");
     l2cap_init();
+    printf("[BT] L2CAP initialized\n");
 
     // SDP サーバーの初期化
+    printf("[BT] Initializing SDP server...\n");
     sdp_init();
+    printf("[BT] SDP server initialized\n");
 
     // A2DP Sink の初期化
+    printf("[BT] Initializing A2DP Sink...\n");
     a2dp_sink_init();
     a2dp_sink_register_packet_handler(&a2dp_sink_packet_handler);
+    printf("[BT] A2DP Sink initialized\n");
 
     // SDP レコードを登録（A2DP Sink として認識されるように）
+    printf("[BT] Creating SDP record...\n");
     memset(sdp_avdtp_sink_service_buffer, 0, sizeof(sdp_avdtp_sink_service_buffer));
     a2dp_sink_create_sdp_record(sdp_avdtp_sink_service_buffer,
                                  0x10001,
                                  AVDTP_SINK_FEATURE_MASK_SPEAKER | AVDTP_SINK_FEATURE_MASK_AMPLIFIER,
                                  NULL, NULL);
     sdp_register_service(sdp_avdtp_sink_service_buffer);
+    printf("[BT] SDP record registered\n");
 
     // SBC エンドポイントを登録
+    printf("[BT] Creating A2DP stream endpoint...\n");
     avdtp_stream_endpoint_t *local_stream_endpoint = a2dp_sink_create_stream_endpoint(
         AVDTP_AUDIO,
         AVDTP_CODEC_SBC,
@@ -107,21 +123,29 @@ bool bt_audio_init(void) {
     }
 
     local_seid = avdtp_local_seid(local_stream_endpoint);
+    printf("[BT] A2DP stream endpoint created (SEID: %u)\n", local_seid);
 
     // SBC デコーダーの初期化
+    printf("[BT] Initializing SBC decoder...\n");
     btstack_sbc_decoder_init(&sbc_decoder_state, sbc_mode, &handle_pcm_data, NULL);
+    printf("[BT] SBC decoder initialized\n");
 
     // GAP（Generic Access Profile）の設定
+    printf("[BT] Configuring GAP...\n");
     gap_discoverable_control(1);
     gap_set_class_of_device(BT_DEVICE_CLASS);
     gap_set_local_name(BT_DEVICE_NAME);
+    printf("[BT] GAP configured (Device name: %s)\n", BT_DEVICE_NAME);
 
     // HCI パワーオン
+    printf("[BT] Powering on HCI...\n");
     hci_power_control(HCI_POWER_ON);
+    printf("[BT] HCI powered on\n");
 
-    printf("Bluetooth A2DP Sink initialized successfully\n");
-    printf("Device name: %s\n", BT_DEVICE_NAME);
-    printf("Waiting for connection...\n");
+    printf("\n[BT] Bluetooth A2DP Sink initialized successfully\n");
+    printf("[BT] Device name: %s\n", BT_DEVICE_NAME);
+    printf("[BT] Device class: 0x%06X\n", BT_DEVICE_CLASS);
+    printf("[BT] Waiting for connection...\n");
     printf("========================================\n\n");
 
     return true;
