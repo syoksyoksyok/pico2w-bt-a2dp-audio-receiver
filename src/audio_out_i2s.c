@@ -88,12 +88,15 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits, uint8_t channels) {
 
     // PIO クロック設定
     // BCLK frequency = sample_rate × 64 (32 bits per channel × 2 channels)
-    // 44100 Hz → BCLK = 2.8224 MHz
+    // PIOプログラムは1ビットあたり2命令使用するため、PIO clock = BCLK × 2
+    // 44100 Hz → BCLK = 2.8224 MHz, PIO clock = 5.6448 MHz
     uint32_t bclk_freq = sample_rate * 64;
-    float div = (float)clock_get_hz(clk_sys) / bclk_freq;
+    uint32_t pio_freq = bclk_freq * 2;  // 2 PIO cycles per bit
+    float div = (float)clock_get_hz(clk_sys) / pio_freq;
     pio_sm_set_clkdiv(pio, sm, div);
 
-    printf("  BCLK frequency: %lu Hz (divider: %.2f)\n", bclk_freq, div);
+    printf("  BCLK frequency: %lu Hz, PIO clock: %lu Hz (divider: %.2f)\n",
+           bclk_freq, pio_freq, div);
 
     // DMA チャンネルを取得
     dma_channel = dma_claim_unused_channel(true);
@@ -250,8 +253,9 @@ static void fill_dma_buffer(void) {
         }
 
         // 32bitワードにパック (MSB first)
-        // I2S format: 16-bit left, 16-bit right
-        dma_buffer[i] = ((uint32_t)left << 16) | ((uint32_t)right & 0xFFFF);
+        // I2S format: bits 31-16 = left channel, bits 15-0 = right channel
+        // 符号拡張を防ぐため、明示的にuint16_tにキャスト
+        dma_buffer[i] = ((uint32_t)(uint16_t)left << 16) | (uint32_t)(uint16_t)right;
     }
 }
 
