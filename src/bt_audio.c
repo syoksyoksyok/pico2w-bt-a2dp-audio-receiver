@@ -62,7 +62,21 @@ bool bt_audio_init(void) {
     }
     printf("CYW43 initialized\n");
 
-    // HCI の初期化
+    // BTstack run loop の初期化
+    printf("Initializing BTstack run loop...\n");
+    btstack_run_loop_init(btstack_run_loop_embedded_get_instance());
+
+    // HCI の初期化（CYW43 transport を使用）
+    printf("Initializing HCI transport...\n");
+    hci_init(hci_transport_cyw43_instance(), NULL);
+
+    // HCI イベントハンドラの登録
+    static hci_event_callback_registration_t hci_event_callback_registration;
+    hci_event_callback_registration.callback = &packet_handler;
+    hci_add_event_handler(&hci_event_callback_registration);
+    printf("HCI event handler registered\n");
+
+    // L2CAP の初期化
     l2cap_init();
 
     // SDP サーバーの初期化
@@ -122,6 +136,7 @@ bool bt_audio_init(void) {
 void bt_audio_run(void) {
     // BTstack のメインループを実行
     // この関数は定期的に呼び出す必要がある
+    btstack_run_loop_execute_once();
 }
 
 // ============================================================================
