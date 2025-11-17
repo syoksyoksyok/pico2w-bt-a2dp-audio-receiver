@@ -44,7 +44,7 @@ target_include_directories(pico2w_bt_a2dp_receiver PRIVATE
 # リンクするライブラリ
 target_link_libraries(pico2w_bt_a2dp_receiver
     pico_stdlib
-    pico_cyw43_arch_none
+    pico_cyw43_arch_threadsafe_background  # Bluetooth用にバックグラウンド処理を有効化
     pico_btstack_classic
     pico_btstack_ble  # CYW43ドライバーが必要とするため有効化（SDK 2.2.0パッチ済み）
     pico_btstack_cyw43
