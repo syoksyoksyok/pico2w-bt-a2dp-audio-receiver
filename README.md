@@ -74,18 +74,30 @@ cd pico2w-bt-a2dp-audio-receiver
 
 `src/config.h` でピン配置を確認・変更できます。
 
+**注意**: ピン番号は **GPIO番号** です（物理ピン番号ではありません）
+
 #### I2S モードの場合
 
+| GPIO番号 | 物理ピン番号 | 信号名 | 説明 |
+|----------|-------------|--------|------|
+| GPIO 26 | Pin 31 | DATA | DIN (Data) |
+| GPIO 27 | Pin 32 | BCLK | BCK (Bit Clock) |
+| GPIO 28 | Pin 34 | LRCLK | LCK (Left/Right Clock) |
+
 ```c
-#define I2S_DATA_PIN    26    // DIN (Data)
-#define I2S_BCLK_PIN    27    // BCK (Bit Clock)
-#define I2S_LRCLK_PIN   28    // LCK (Left/Right Clock)
+#define I2S_DATA_PIN    26    // GPIO 26 (物理ピン31) - DIN (Data)
+#define I2S_BCLK_PIN    27    // GPIO 27 (物理ピン32) - BCK (Bit Clock)
+#define I2S_LRCLK_PIN   28    // GPIO 28 (物理ピン34) - LCK (Left/Right Clock)
 ```
 
 #### PWM モードの場合
 
+| GPIO番号 | 物理ピン番号 | 信号名 | 説明 |
+|----------|-------------|--------|------|
+| GPIO 26 | Pin 31 | PWM | PWM オーディオ出力 |
+
 ```c
-#define PWM_AUDIO_PIN   26    // PWM 出力ピン
+#define PWM_AUDIO_PIN   26    // GPIO 26 (物理ピン31) - PWM 出力ピン
 ```
 
 詳細な配線方法は [WIRING.md](WIRING.md) を参照してください。

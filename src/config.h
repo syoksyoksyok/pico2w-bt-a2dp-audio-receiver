@@ -30,10 +30,10 @@
 
 #ifdef USE_I2S_OUTPUT
 
-// I2S ピン配置
-#define I2S_DATA_PIN    26    // DIN (Data)
-#define I2S_BCLK_PIN    27    // BCK (Bit Clock)
-#define I2S_LRCLK_PIN   28    // LCK (Left/Right Clock / Word Select)
+// I2S ピン配置 (GPIO番号)
+#define I2S_DATA_PIN    26    // GPIO 26 (物理ピン31) - DIN (Data)
+#define I2S_BCLK_PIN    27    // GPIO 27 (物理ピン32) - BCK (Bit Clock)
+#define I2S_LRCLK_PIN   28    // GPIO 28 (物理ピン34) - LCK (Left/Right Clock / Word Select)
 
 // サンプリングレート（Hz）
 #define AUDIO_SAMPLE_RATE    44100
@@ -50,9 +50,9 @@
 // PWM 簡易 DAC 設定（PWM/PIO を使用する場合）
 // ============================================================================
 
-// PWM 出力ピン（モノラル出力）
+// PWM 出力ピン（モノラル出力）- GPIO番号
 #ifndef PWM_AUDIO_PIN
-#define PWM_AUDIO_PIN    26
+#define PWM_AUDIO_PIN    26    // GPIO 26 (物理ピン31)
 #endif
 
 // PWM 解像度（ビット）

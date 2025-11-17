@@ -24,21 +24,23 @@ I2S DAC モジュール（PCM5102A, UDA1334A など）を使用する場合の�
 
 #### デフォルト設定（`src/config.h`）
 
+**注意**: ピン番号は **GPIO番号** です（物理ピン番号ではありません）
+
 ```c
-#define I2S_DATA_PIN    26    // DIN (Data)
-#define I2S_BCLK_PIN    27    // BCK (Bit Clock)
-#define I2S_LRCLK_PIN   28    // LCK (Left/Right Clock / Word Select)
+#define I2S_DATA_PIN    26    // GPIO 26 (物理ピン31) - DIN (Data)
+#define I2S_BCLK_PIN    27    // GPIO 27 (物理ピン32) - BCK (Bit Clock)
+#define I2S_LRCLK_PIN   28    // GPIO 28 (物理ピン34) - LCK (Left/Right Clock / Word Select)
 ```
 
 #### 配線表
 
-| Pico 2 W GPIO | I2S 信号名 | PCM5102A ピン | 説明 |
-|---------------|-----------|---------------|------|
-| GPIO 26       | DATA      | DIN           | オーディオデータ |
-| GPIO 27       | BCLK      | BCK           | ビットクロック |
-| GPIO 28       | LRCLK     | LCK (LRCK)    | 左右チャンネルクロック |
-| 3.3V (36番ピン) | VCC     | VIN / VCC     | 電源（3.3V） |
-| GND (38番ピン)  | GND     | GND           | グランド |
+| GPIO番号 | 物理ピン番号 | I2S 信号名 | PCM5102A ピン | 説明 |
+|----------|-------------|-----------|---------------|------|
+| GPIO 26 | Pin 31 | DATA | DIN | オーディオデータ |
+| GPIO 27 | Pin 32 | BCLK | BCK | ビットクロック |
+| GPIO 28 | Pin 34 | LRCLK | LCK (LRCK) | 左右チャンネルクロック |
+| 3.3V | Pin 36 | VCC | VIN / VCC | 電源（3.3V） |
+| GND | Pin 38 | GND | GND | グランド |
 
 ### PCM5102A モジュールとの配線図
 
@@ -106,8 +108,10 @@ PWM を使った簡易的な DAC 出力です。音質は I2S より劣ります
 
 ### デフォルト設定（`src/config.h`）
 
+**注意**: ピン番号は **GPIO番号** です（物理ピン番号ではありません）
+
 ```c
-#define PWM_AUDIO_PIN   26    // PWM 出力ピン
+#define PWM_AUDIO_PIN   26    // GPIO 26 (物理ピン31) - PWM 出力ピン
 ```
 
 ### 配線方法
