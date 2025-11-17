@@ -41,10 +41,13 @@ target_include_directories(pico2w_bt_a2dp_receiver PRIVATE
     ${PICO_SDK_PATH}/lib/btstack/src/classic
 )
 
+# CYW43をlwIP無しで使用するための設定
+set(CYW43_LWIP 0)
+
 # リンクするライブラリ
 target_link_libraries(pico2w_bt_a2dp_receiver
     pico_stdlib
-    pico_cyw43_arch_poll  # Bluetooth専用（Wi-Fi/lwIP不要）
+    pico_cyw43_arch_none  # lwIP依存を回避
     pico_btstack_classic
     pico_btstack_ble  # CYW43ドライバーが必要とするため有効化（SDK 2.2.0パッチ済み）
     pico_btstack_cyw43
@@ -69,4 +72,9 @@ target_compile_options(pico2w_bt_a2dp_receiver PRIVATE
     -Wall
     -Wextra
     -O2
+)
+
+# CYW43をlwIP無しで使用（Bluetooth専用）
+target_compile_definitions(pico2w_bt_a2dp_receiver PRIVATE
+    CYW43_LWIP=0
 )
