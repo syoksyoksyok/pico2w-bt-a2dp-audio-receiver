@@ -1,0 +1,38 @@
+;
+; I2S Audio Output PIO Program for PCM5102 DAC
+;
+; This PIO program generates I2S output signals for external DAC modules like PCM5102.
+; Format: I2S (Philips standard)
+; - 16-bit samples
+; - Stereo (left/right channels)
+; - LRCLK (Word Select): Low = Left, High = Right
+;
+; Pin assignments:
+; - Side-set pin 0: LRCLK (Word Select) - GPIO 28
+; - Side-set pin 1: BCLK (Bit Clock) - GPIO 27
+; - OUT pin: DATA (Serial Data) - GPIO 26
+;
+
+.program audio_i2s
+.side_set 2
+
+; I2S format: LRCLK changes one clock before the data
+; Left channel: LRCLK=0, Right channel: LRCLK=1
+
+.wrap_target
+    ; Left channel - 16 bits
+    set x, 14           side 0b00  ; LRCLK=0 (left), BCLK=0, prepare for 15 more bits
+left_loop:
+    out pins, 1         side 0b01  ; output bit, BCLK=1
+    jmp x-- left_loop   side 0b00  ; BCLK=0, loop
+
+    out pins, 1         side 0b11  ; Last bit of left, LRCLK goes high, BCLK=1
+
+    ; Right channel - 16 bits
+    set x, 14           side 0b10  ; LRCLK=1 (right), BCLK=0, prepare for 15 more bits
+right_loop:
+    out pins, 1         side 0b11  ; output bit, BCLK=1
+    jmp x-- right_loop  side 0b10  ; BCLK=0, loop
+
+    out pins, 1         side 0b01  ; Last bit of right, LRCLK goes low, BCLK=1
+.wrap

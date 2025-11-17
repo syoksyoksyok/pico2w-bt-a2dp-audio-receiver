@@ -23,6 +23,9 @@ set(CMAKE_CXX_STANDARD 17)
 # Pico SDK を初期化
 pico_sdk_init()
 
+# PIOプログラムからヘッダー生成
+pico_generate_pio_header(pico2w_bt_a2dp_receiver ${CMAKE_CURRENT_LIST_DIR}/src/audio_i2s.pio)
+
 # 実行ファイルを作成
 add_executable(pico2w_bt_a2dp_receiver
     src/main.c
