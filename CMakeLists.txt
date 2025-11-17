@@ -55,6 +55,7 @@ target_link_libraries(pico2w_bt_a2dp_receiver
     hardware_pwm
     hardware_pio
     hardware_clocks
+    hardware_sync
 )
 
 # USB シリアル出力を有効化（デバッグログ用）
