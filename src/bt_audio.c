@@ -127,6 +127,18 @@ bool bt_audio_init(void) {
     gap_discoverable_control(1);
     gap_set_class_of_device(BT_DEVICE_CLASS);
     gap_set_local_name(BT_DEVICE_NAME);
+
+    // SSP（Secure Simple Pairing）を有効化（iOS/Android対応に必要）
+    printf("[BT] Enabling SSP (Secure Simple Pairing)...\n");
+    gap_ssp_set_io_capability(SSP_IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
+    gap_ssp_set_authentication_requirement(SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_GENERAL_BONDING);
+
+    // Bluetooth Classic のスキャンモード設定（重要！）
+    // これがないとデバイスが検出されない・接続できない
+    printf("[BT] Enabling inquiry and page scan...\n");
+    gap_set_default_link_policy_settings(LM_LINK_POLICY_ENABLE_ROLE_SWITCH | LM_LINK_POLICY_ENABLE_SNIFF_MODE);
+    gap_set_allow_role_switch(true);
+
     printf("[BT] GAP configured (Device name: %s)\n", BT_DEVICE_NAME);
 
     // HCI パワーオン
@@ -305,17 +317,56 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
     if (packet_type != HCI_EVENT_PACKET) return;
 
-    switch (hci_event_packet_get_type(packet)) {
+    uint8_t event_type = hci_event_packet_get_type(packet);
+
+    switch (event_type) {
         case HCI_EVENT_PIN_CODE_REQUEST: {
             // PIN コードリクエスト（必要に応じて処理）
-            printf("PIN code request - using default: 0000\n");
+            printf("[BT] PIN code request - using default: 0000\n");
             bd_addr_t addr;
             hci_event_pin_code_request_get_bd_addr(packet, addr);
             gap_pin_code_response(addr, "0000");
             break;
         }
 
+        case HCI_EVENT_USER_CONFIRMATION_REQUEST: {
+            // ユーザー確認リクエスト（SSP: Secure Simple Pairing）
+            printf("[BT] User confirmation request - auto accepting\n");
+            bd_addr_t addr;
+            hci_event_user_confirmation_request_get_bd_addr(packet, addr);
+            gap_ssp_confirmation_response(addr);
+            break;
+        }
+
+        case HCI_EVENT_COMMAND_COMPLETE: {
+            // コマンド完了（詳細ログは不要）
+            break;
+        }
+
+        case HCI_EVENT_COMMAND_STATUS: {
+            // コマンドステータス
+            uint8_t status = packet[2];
+            if (status != 0) {
+                printf("[BT] Command status error: 0x%02x\n", status);
+            }
+            break;
+        }
+
+        case HCI_EVENT_NUMBER_OF_COMPLETED_PACKETS: {
+            // パケット完了通知（頻繁なので無視）
+            break;
+        }
+
+        case HCI_EVENT_INQUIRY_RESULT:
+        case HCI_EVENT_INQUIRY_RESULT_WITH_RSSI:
+        case HCI_EVENT_EXTENDED_INQUIRY_RESPONSE:
+        case HCI_EVENT_INQUIRY_COMPLETE:
+            // Inquiry 関連イベント（Sink なので無視）
+            break;
+
         default:
+            // その他のイベントをログ出力
+            printf("[BT] HCI Event: 0x%02x\n", event_type);
             break;
     }
 }

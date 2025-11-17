@@ -188,6 +188,7 @@ int main(void) {
 
     while (true) {
         // Bluetooth スタックの実行
+        // pico_cyw43_arch_none を使用する場合、頻繁なポーリングが必須
         bt_audio_run();
 
         // 接続状態の監視
@@ -216,8 +217,9 @@ int main(void) {
         }
 #endif
 
-        // 短いスリープ（CPU 負荷軽減）
-        sleep_ms(1);
+        // スリープなし（Bluetooth Classic は頻繁なポーリングが必要）
+        // tight_loop_contents(); を使用して省電力モードに入る
+        tight_loop_contents();
     }
 
     return 0;

@@ -6,6 +6,9 @@ set(PICO_BOARD pico2_w)
 # picotoolのビルドをスキップ（mbedtlsエラー回避）
 set(SKIP_PICO_PICOTOOL 1)
 
+# CYW43をlwIP無しで使用するための設定（SDK初期化前に設定が必要）
+set(CYW43_LWIP 0 CACHE INTERNAL "Disable lwIP for Bluetooth-only")
+
 # Pico SDK のパスを設定（環境変数 PICO_SDK_PATH から取得）
 set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
 
