@@ -157,15 +157,26 @@ void bt_audio_set_pcm_callback(pcm_data_callback_t callback) {
 static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context) {
     UNUSED(context);
 
+    static uint32_t pcm_packet_count = 0;
+    pcm_packet_count++;
+
     // サンプリングレートを更新
     if (current_sample_rate != (uint32_t)sample_rate) {
         current_sample_rate = (uint32_t)sample_rate;
         printf("Sample rate changed: %lu Hz\n", current_sample_rate);
     }
 
+    // 最初の数パケットだけログ出力
+    if (pcm_packet_count <= 5) {
+        printf("[PCM] Decoded: samples=%d, channels=%d, rate=%d Hz (packet #%lu)\n",
+               num_samples, num_channels, sample_rate, pcm_packet_count);
+    }
+
     // コールバックが設定されていればPCMデータを渡す
     if (pcm_callback) {
         pcm_callback(data, (uint32_t)num_samples, (uint8_t)num_channels, (uint32_t)sample_rate);
+    } else {
+        printf("[PCM] WARNING: No callback registered!\n");
     }
 }
 
@@ -183,7 +194,13 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
 
     if (packet_type != HCI_EVENT_PACKET) return;
 
-    switch (hci_event_packet_get_type(packet)) {
+    uint8_t event_type = hci_event_packet_get_type(packet);
+
+    switch (event_type) {
+        case HCI_EVENT_DISCONNECTION_COMPLETE:
+            printf("[BT] DISCONNECTION_COMPLETE event\n");
+            break;
+
         case HCI_EVENT_A2DP_META:
             switch (hci_event_a2dp_meta_get_subevent_code(packet)) {
                 case A2DP_SUBEVENT_SIGNALING_CONNECTION_ESTABLISHED:
@@ -202,7 +219,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     break;
 
                 case A2DP_SUBEVENT_SIGNALING_CONNECTION_RELEASED:
-                    printf("A2DP connection released\n");
+                    printf("[A2DP] Connection RELEASED (disconnected)\n");
                     a2dp_cid = 0;
                     is_connected = false;
                     break;
@@ -222,15 +239,15 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     break;
 
                 case A2DP_SUBEVENT_STREAM_STARTED:
-                    printf("Stream started - Audio playback begins\n");
+                    printf("[A2DP] Stream STARTED - Audio playback begins\n");
                     break;
 
                 case A2DP_SUBEVENT_STREAM_SUSPENDED:
-                    printf("Stream suspended - Audio playback paused\n");
+                    printf("[A2DP] Stream SUSPENDED - Audio playback paused\n");
                     break;
 
                 case A2DP_SUBEVENT_STREAM_RELEASED:
-                    printf("Stream released\n");
+                    printf("[A2DP] Stream RELEASED\n");
                     is_connected = false;
                     break;
 
@@ -274,9 +291,11 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
 static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet, uint16_t size) {
     UNUSED(seid);
 
+    printf("[A2DP] Media packet received: size=%d\n", size);
+
     // パケットサイズチェック
     if (size < 13) {
-        // 最小ヘッダーサイズ未満の場合は無視
+        printf("[A2DP] Packet too small: %d bytes\n", size);
         return;
     }
 
@@ -296,6 +315,7 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet, uint16
     // SBC メディアペイロードヘッダーの読み取り (1 byte)
     // - フラグメンテーション情報とフレーム数
     if (pos >= size) {
+        printf("[A2DP] No SBC header\n");
         return;
     }
 
@@ -309,9 +329,10 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet, uint16
     uint8_t fragmentation = (sbc_media_header >> 7) & 0x01;
     uint8_t num_frames = sbc_media_header & 0x0F;
 
+    printf("[A2DP] SBC header: frag=%d, frames=%d\n", fragmentation, num_frames);
+
     if (fragmentation) {
-        // フラグメント化されたパケットは現在未対応
-        // 必要に応じて実装
+        printf("[A2DP] Fragmented packet (unsupported)\n");
         return;
     }
 
@@ -320,9 +341,13 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet, uint16
     if (remaining_size > 0) {
         uint8_t *sbc_frame_data = packet + pos;
 
+        printf("[A2DP] Decoding %d bytes of SBC data\n", remaining_size);
+
         // SBC デコーダーにデータを供給
         // デコーダーは自動的に handle_pcm_data コールバックを呼び出す
         btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, sbc_frame_data, remaining_size);
+    } else {
+        printf("[A2DP] No SBC data to decode\n");
     }
 }
 
