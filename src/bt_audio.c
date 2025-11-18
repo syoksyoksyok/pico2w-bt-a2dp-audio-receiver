@@ -404,21 +404,36 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     }
 
     // パケットサイズチェック
-    if (size < 13) {
-        // RTP(12) + AVDTP(1) の最小サイズ未満
+    if (size < 14) {
+        // RTP(12) + AVDTP(1) + 最小SBC(1)
         return;
     }
 
     // RTP ヘッダーをスキップ（12バイト）
     int pos = 12;
 
-    // AVDTPメディアペイロードヘッダー（1バイト）をスキップ
-    pos++;
-    // pos = 13: ここからSBCデータ開始（0x9C sync wordから）
+    // AVDTP/SBCヘッダー（1バイト）を読む
+    uint8_t sbc_media_header = packet[pos];
+    uint8_t fragmentation = (sbc_media_header >> 7) & 0x01;
+    uint8_t start = (sbc_media_header >> 6) & 0x01;
+    uint8_t last = (sbc_media_header >> 5) & 0x01;
+    uint8_t num_frames = sbc_media_header & 0x0F;
+    pos++;  // pos = 13
+
+    if (packet_count <= 3) {
+        printf(">>> AVDTP header: 0x%02X (frag=%d, start=%d, last=%d, frames=%d)\n",
+               sbc_media_header, fragmentation, start, last, num_frames);
+    }
+
+    // Fragmentationの場合は処理をスキップ（簡易実装）
+    if (fragmentation) {
+        printf("WARNING: Fragmented packet detected, skipping\n");
+        return;
+    }
 
     // 100パケットごとにログ出力
     if (packet_count % 100 == 0) {
-        printf("Media packets received: %lu (size=%d, sbc_size=%d)\n", packet_count, size, size - pos);
+        printf("Media packets received: %lu (frames=%d, sbc_size=%d)\n", packet_count, num_frames, size - pos);
     }
 
     // デバッグ: 最初のパケットでSBCデータの開始を確認
