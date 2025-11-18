@@ -293,6 +293,12 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     printf("  Sample rate: %lu Hz\n", sampling_frequency);
 
                     current_sample_rate = sampling_frequency;
+
+                    // SBCデコーダーを再初期化（ストリーム設定で）
+                    printf("  Reinitializing SBC decoder with new configuration...\n");
+                    btstack_sbc_decoder_init(&sbc_decoder_state, sbc_mode, &handle_pcm_data, NULL);
+                    printf("  SBC decoder reinitialized\n");
+
                     break;
                 }
 
@@ -383,6 +389,13 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     // 最初の数パケットは詳細ログ
     if (packet_count <= 5) {
         printf(">>> Calling SBC decoder: frames=%d, data_size=%d\n", num_frames, size - pos);
+        // 最初の16バイトのSBCデータをダンプ
+        printf(">>> SBC data dump (first 16 bytes): ");
+        int dump_size = (size - pos) > 16 ? 16 : (size - pos);
+        for (int i = 0; i < dump_size; i++) {
+            printf("%02X ", packet[pos + i]);
+        }
+        printf("\n");
     }
 
     // SBCデータ全体をデコーダーに渡す
