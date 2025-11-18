@@ -289,6 +289,10 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
 
                 case A2DP_SUBEVENT_STREAM_STARTED:
                     printf("Stream started - Audio playback begins\n");
+                    // デコーダーをストリーム開始時に再初期化
+                    printf("  Reinitializing SBC decoder for stream start...\n");
+                    btstack_sbc_decoder_init(&sbc_decoder_state, sbc_mode, &handle_pcm_data, NULL);
+                    printf("  SBC decoder ready\n");
                     break;
 
                 case A2DP_SUBEVENT_STREAM_SUSPENDED:
