@@ -37,6 +37,24 @@ static uint8_t sdp_avdtp_sink_service_buffer[150];
 static uint16_t a2dp_cid = 0;
 static uint8_t local_seid = 1;
 
+// SBC Codec Capabilities (柔軟な設定をサポート)
+static uint8_t sbc_codec_capabilities[] = {
+    // Byte 0: サンプリング周波数 (上位4ビット) | チャンネルモード (下位4ビット)
+    // すべてのサンプリングレートとチャンネルモードをサポート
+    (AVDTP_SBC_44100 | AVDTP_SBC_48000) << 4 | (AVDTP_SBC_STEREO | AVDTP_SBC_JOINT_STEREO),
+
+    // Byte 1: ブロック長 (上位4ビット) | サブバンド数 (bit 2-3) | アロケーション方法 (bit 0-1)
+    (AVDTP_SBC_BLOCK_LENGTH_16 | AVDTP_SBC_BLOCK_LENGTH_12 | AVDTP_SBC_BLOCK_LENGTH_8 | AVDTP_SBC_BLOCK_LENGTH_4) << 4 |
+    (AVDTP_SBC_SUBBANDS_8 | AVDTP_SBC_SUBBANDS_4) << 2 |
+    (AVDTP_SBC_ALLOCATION_METHOD_LOUDNESS | AVDTP_SBC_ALLOCATION_METHOD_SNR),
+
+    2,    // Byte 2: 最小ビットプール値
+    53    // Byte 3: 最大ビットプール値
+};
+
+// SBC Codec Configuration (実際に使用される設定)
+static uint8_t sbc_codec_configuration[4];
+
 // メディアパケット受信用
 static int media_sbc_codec_configuration[4];
 
@@ -86,11 +104,12 @@ bool bt_audio_init(void) {
     sdp_register_service(sdp_avdtp_sink_service_buffer);
 
     // SBC エンドポイントを登録
+    // 注: media_codec_information には SBC capabilities を渡す
     avdtp_stream_endpoint_t *local_stream_endpoint = a2dp_sink_create_stream_endpoint(
         AVDTP_AUDIO,
         AVDTP_CODEC_SBC,
-        (uint8_t *)&sbc_decoder_state,
-        sizeof(sbc_decoder_state),
+        sbc_codec_capabilities,
+        sizeof(sbc_codec_capabilities),
         sdp_avdtp_sink_service_buffer,
         sizeof(sdp_avdtp_sink_service_buffer));
 
@@ -100,6 +119,7 @@ bool bt_audio_init(void) {
     }
 
     local_seid = avdtp_local_seid(local_stream_endpoint);
+    printf("A2DP stream endpoint created (SEID: %d)\n", local_seid);
 
     // SBC デコーダーの初期化
     btstack_sbc_decoder_init(&sbc_decoder_state, sbc_mode, &handle_pcm_data, NULL);
@@ -164,6 +184,14 @@ void bt_audio_set_pcm_callback(pcm_data_callback_t callback) {
 
 static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context) {
     UNUSED(context);
+
+    // 初回のPCMデータ受信をログ出力
+    static bool first_pcm = true;
+    if (first_pcm) {
+        printf("First PCM data received: %d samples, %d channels, %d Hz\n",
+               num_samples, num_channels, sample_rate);
+        first_pcm = false;
+    }
 
     // サンプリングレートを更新
     if (current_sample_rate != (uint32_t)sample_rate) {
@@ -247,9 +275,16 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     uint8_t num_channels = a2dp_subevent_signaling_media_codec_sbc_configuration_get_num_channels(packet);
                     uint32_t sampling_frequency = a2dp_subevent_signaling_media_codec_sbc_configuration_get_sampling_frequency(packet);
 
-                    printf("SBC configuration %s: channels %d, sample rate %lu Hz\n",
-                           reconfigure ? "reconfigured" : "received",
-                           num_channels, sampling_frequency);
+                    // SBC設定を保存
+                    a2dp_subevent_signaling_media_codec_sbc_configuration_get_configuration(packet, sbc_codec_configuration);
+
+                    printf("SBC configuration %s:\n",
+                           reconfigure ? "reconfigured" : "received");
+                    printf("  Channels: %d\n", num_channels);
+                    printf("  Sample rate: %lu Hz\n", sampling_frequency);
+                    printf("  Configuration: 0x%02X 0x%02X 0x%02X 0x%02X\n",
+                           sbc_codec_configuration[0], sbc_codec_configuration[1],
+                           sbc_codec_configuration[2], sbc_codec_configuration[3]);
 
                     current_sample_rate = sampling_frequency;
                     break;
@@ -307,6 +342,12 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16_t size) {
     UNUSED(seid);
 
+    // パケットサイズチェック
+    if (size < 13) {
+        // RTP(12) + AVDTP(1) の最小サイズ未満
+        return;
+    }
+
     // RTP ヘッダーをスキップ（12バイト）
     int pos = 12;
 
@@ -315,16 +356,24 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
 
     // SBCフレーム数を取得（1バイト）
     if (pos >= size) return;
-    // uint8_t num_frames = packet[pos];
+    uint8_t num_frames = packet[pos];
     pos++;
 
-    // 各SBCフレームをデコード
-    while (pos < size) {
-        // 残りのデータをSBCデコーダーに渡す
-        btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, packet + pos, size - pos);
+    // デバッグ出力（初回のみ）
+    static bool first_packet = true;
+    if (first_packet) {
+        printf("First media packet received: %d SBC frames, %d bytes\n", num_frames, size);
+        first_packet = false;
+    }
 
-        // 次のフレームへ（SBCデコーダーが自動的に処理済みバイト数を管理）
-        // 簡易実装：すべてのデータを処理したと仮定
-        break;
+    // 各SBCフレームをデコード
+    // BTstackのSBCデコーダーは、process_data内で必要なバイト数を自動的に消費する
+    while (pos < size) {
+        int bytes_processed = btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, packet + pos, size - pos);
+        if (bytes_processed <= 0) {
+            // デコードエラーまたは完了
+            break;
+        }
+        pos += bytes_processed;
     }
 }
