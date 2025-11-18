@@ -116,7 +116,9 @@ bool bt_audio_init(void) {
     printf("A2DP stream endpoint created (SEID: %d)\n", local_seid);
 
     // SBC デコーダーの初期化
+    printf("Initializing SBC decoder...\n");
     btstack_sbc_decoder_init(&sbc_decoder_state, sbc_mode, &handle_pcm_data, NULL);
+    printf("  SBC decoder initialized (mode=%d, callback=%p)\n", sbc_mode, (void*)&handle_pcm_data);
 
     // GAP（Generic Access Profile）の設定
     gap_discoverable_control(1);
@@ -188,6 +190,8 @@ static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, in
     if (first_pcm) {
         printf("First PCM data received: %d samples, %d channels, %d Hz\n",
                num_samples, num_channels, sample_rate);
+        printf("  Data pointer: %p\n", (void*)data);
+        printf("  Context: %p\n", context);
         first_pcm = false;
     }
 
@@ -203,10 +207,24 @@ static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, in
         printf("Sample rate changed: %lu Hz\n", current_sample_rate);
     }
 
-    // データの健全性チェック（最初の数回のみ）
-    if (pcm_count <= 3 && data != NULL) {
-        // 最初のサンプル値を表示（デバッグ用）
-        printf(">>> PCM sample[0]=%d, sample[1]=%d\n", data[0], data[1]);
+    // データの健全性チェック（最初の10回）
+    if (pcm_count <= 10 && data != NULL) {
+        // 最初と最後のサンプル値を表示
+        int last_idx = (num_samples * num_channels) - 1;
+        printf(">>> PCM #%lu: sample[0]=%d, sample[1]=%d, sample[%d]=%d\n",
+               pcm_count, data[0], data[1], last_idx, data[last_idx]);
+
+        // 全部0かチェック
+        bool all_zero = true;
+        for (int i = 0; i < num_samples * num_channels && i < 100; i++) {
+            if (data[i] != 0) {
+                all_zero = false;
+                break;
+            }
+        }
+        if (all_zero) {
+            printf(">>> WARNING: All samples are ZERO!\n");
+        }
     }
 
     // コールバックが設定されていればPCMデータを渡す
@@ -402,6 +420,8 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     // デバッグ: 最初のパケットでSBCデータの開始を確認
     if (packet_count <= 3) {
         printf(">>> SBC data starts at offset %d: 0x%02X (should be 0x9C)\n", pos, packet[pos]);
+        printf(">>> Passing %d bytes to SBC decoder (first 4 bytes: %02X %02X %02X %02X)\n",
+               size - pos, packet[pos], packet[pos+1], packet[pos+2], packet[pos+3]);
     }
 
     // SBCデータ全体をデコーダーに渡す（offset 13 から）
@@ -409,6 +429,6 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, packet + pos, size - pos);
 
     if (packet_count <= 5) {
-        printf(">>> SBC decoder returned\n");
+        printf(">>> SBC decoder returned (processed packet #%lu)\n", packet_count);
     }
 }
