@@ -354,6 +354,33 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16_t size) {
     UNUSED(seid);
 
+    // デバッグ出力（初回と定期的に）
+    static bool first_packet = true;
+    static uint32_t packet_count = 0;
+    packet_count++;
+
+    if (first_packet) {
+        printf("\n=== FULL PACKET DUMP ===\n");
+        printf("Total packet size: %d bytes\n", size);
+        printf("First 60 bytes:\n");
+        int dump_size = size > 60 ? 60 : size;
+        for (int i = 0; i < dump_size; i++) {
+            printf("%02X ", packet[i]);
+            if ((i + 1) % 16 == 0) printf("  [offset %d]\n", i + 1 - 16);
+        }
+        if (dump_size % 16 != 0) printf("  [offset %d]\n", (dump_size / 16) * 16);
+
+        // 0x9C (SBC sync word) を探す
+        printf("\nSearching for SBC sync word (0x9C):\n");
+        for (int i = 0; i < size - 1; i++) {
+            if (packet[i] == 0x9C) {
+                printf("  Found 0x9C at offset %d\n", i);
+            }
+        }
+        printf("=========================\n\n");
+        first_packet = false;
+    }
+
     // パケットサイズチェック
     if (size < 13) {
         // RTP(12) + AVDTP(1) の最小サイズ未満
@@ -371,31 +398,9 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     uint8_t num_frames = packet[pos];
     pos++;
 
-    // デバッグ出力（初回と定期的に）
-    static bool first_packet = true;
-    static uint32_t packet_count = 0;
-    packet_count++;
-
-    if (first_packet) {
-        printf("First media packet received: %d SBC frames, %d bytes\n", num_frames, size);
-        first_packet = false;
-    }
-
     // 100パケットごとにログ出力
     if (packet_count % 100 == 0) {
         printf("Media packets received: %lu (frames=%d, size=%d)\n", packet_count, num_frames, size);
-    }
-
-    // 最初の数パケットは詳細ログ
-    if (packet_count <= 5) {
-        printf(">>> Calling SBC decoder: frames=%d, data_size=%d\n", num_frames, size - pos);
-        // 最初の16バイトのSBCデータをダンプ
-        printf(">>> SBC data dump (first 16 bytes): ");
-        int dump_size = (size - pos) > 16 ? 16 : (size - pos);
-        for (int i = 0; i < dump_size; i++) {
-            printf("%02X ", packet[pos + i]);
-        }
-        printf("\n");
     }
 
     // SBCデータ全体をデコーダーに渡す
