@@ -50,8 +50,8 @@ static void pcm_data_handler(const int16_t *pcm_data, uint32_t num_samples,
 #endif
     }
 
-    // 100回ごとに統計を表示
-    if (pcm_total_count % 100 == 0) {
+    // N回ごとに統計を表示（頻度はconfig.hで設定）
+    if (pcm_total_count % STATS_LOG_FREQUENCY == 0) {
         printf("[PCM Stats] Callbacks: %lu, Total samples: %lu, Dropped: %lu\n",
                pcm_total_count, pcm_total_samples, pcm_dropped);
     }
@@ -97,7 +97,7 @@ int main(void) {
     stdio_init_all();
 
     // 起動メッセージ
-    sleep_ms(2000);  // USB シリアル接続の安定化待ち
+    sleep_ms(USB_SERIAL_STABILIZATION_MS);  // USB シリアル接続の安定化待ち
 
     printf("\n");
     printf("================================================\n");

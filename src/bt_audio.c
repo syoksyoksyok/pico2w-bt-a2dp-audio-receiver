@@ -39,7 +39,7 @@ static uint8_t media_sbc_codec_capabilities[] = {
 static uint8_t media_sbc_codec_configuration[4];
 
 // A2DP コネクション
-static uint8_t sdp_avdtp_sink_service_buffer[150];
+static uint8_t sdp_avdtp_sink_service_buffer[SDP_AVDTP_SINK_BUFFER_SIZE];
 static uint16_t a2dp_cid = 0;
 static uint8_t local_seid = 1;
 
@@ -178,7 +178,7 @@ static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, in
     pcm_callback_count++;
 
     // 最初の数回だけログ出力（デバッグ用）
-    if (pcm_callback_count <= 5) {
+    if (pcm_callback_count <= INITIAL_PCM_LOG_COUNT) {
         printf("[PCM] Received: %d samples, %d ch, %d Hz\n", num_samples, num_channels, sample_rate);
     }
 
@@ -332,25 +332,31 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     static uint32_t media_total_bytes = 0;
 
     media_packet_count++;
-    media_total_bytes += (size > 13) ? (size - 13) : 0;
+    media_total_bytes += (size > SBC_MEDIA_PACKET_HEADER_OFFSET) ?
+                         (size - SBC_MEDIA_PACKET_HEADER_OFFSET) : 0;
 
     // 最初の数回だけログ出力（デバッグ用）
-    if (media_packet_count <= 3) {
-        printf("[MEDIA] Packet #%lu: size=%u, offset=13, data_size=%u\n",
-               media_packet_count, size, size - 13);
+    if (media_packet_count <= INITIAL_MEDIA_LOG_COUNT) {
+        printf("[MEDIA] Packet #%lu: size=%u, offset=%d, data_size=%u\n",
+               media_packet_count, size, SBC_MEDIA_PACKET_HEADER_OFFSET,
+               size - SBC_MEDIA_PACKET_HEADER_OFFSET);
     }
 
-    // 100パケットごとに統計を表示
-    if (media_packet_count % 100 == 0) {
+    // N回ごとに統計を表示（頻度はconfig.hで設定）
+    if (media_packet_count % STATS_LOG_FREQUENCY == 0) {
         printf("[MEDIA Stats] Packets: %lu, Total bytes: %lu, Avg size: %lu\n",
                media_packet_count, media_total_bytes, media_total_bytes / media_packet_count);
     }
 
-    if (size < 13) {
-        printf("[MEDIA] ERROR: Packet too small (%u bytes)\n", size);
+    // メディアパケットサイズの検証
+    if (size < SBC_MEDIA_PACKET_HEADER_OFFSET) {
+        printf("[MEDIA] ERROR: Packet too small (%u bytes, expected >= %d)\n",
+               size, SBC_MEDIA_PACKET_HEADER_OFFSET);
         return;
     }
 
-    // SBCデコーダーにデータを渡す
-    btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, packet + 13, size - 13);
+    // SBCデコーダーにデータを渡す（ヘッダー13バイトをスキップ）
+    btstack_sbc_decoder_process_data(&sbc_decoder_state, 0,
+                                      packet + SBC_MEDIA_PACKET_HEADER_OFFSET,
+                                      size - SBC_MEDIA_PACKET_HEADER_OFFSET);
 }

@@ -57,6 +57,7 @@ right_data:
 % c-sdk {
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
+#include "config.h"
 
 static inline void i2s_output_program_init(PIO pio, uint sm, uint offset, uint data_pin, uint clock_pin_base, uint sample_rate) {
     // DATAピンの設定
@@ -89,8 +90,8 @@ static inline void i2s_output_program_init(PIO pio, uint sm, uint offset, uint d
     //   - 左チャンネル16ビット: set(1) + loop(30) + 追加(2) = 33サイクル
     //   - 右チャンネル16ビット: set(1) + loop(30) + 追加(2) = 33サイクル
     //   - 合計: 66サイクル
-    // したがって、PIOクロック = サンプルレート × 66
-    float clk_div = (float)clock_get_hz(clk_sys) / (sample_rate * 66.0f);
+    // したがって、PIOクロック = サンプルレート × PIO_CYCLES_PER_STEREO_SAMPLE
+    float clk_div = (float)clock_get_hz(clk_sys) / (sample_rate * (float)PIO_CYCLES_PER_STEREO_SAMPLE);
     sm_config_set_clkdiv(&c, clk_div);
 
     pio_sm_init(pio, sm, offset, &c);

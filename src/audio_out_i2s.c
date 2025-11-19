@@ -121,10 +121,10 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits, uint8_t channels) {
     // DMA割り込み優先度を絶対最低に設定（CYW43のBluetooth処理を妨害しないため）
     // 0x00=最高優先度、0xFF=絶対最低優先度
     // Cortex-M33では実際には2ビット優先度（0-3）で、0xFFは最低の3にマップされる
-    irq_set_priority(DMA_IRQ_0, 0xFF);
+    irq_set_priority(DMA_IRQ_0, DMA_IRQ_PRIORITY);
 
     irq_set_enabled(DMA_IRQ_0, true);
-    printf("  DMA IRQ priority set to absolute lowest (0xFF)\n");
+    printf("  DMA IRQ priority set to absolute lowest (0x%02X)\n", DMA_IRQ_PRIORITY);
 
     // バッファをクリア
     audio_out_i2s_clear_buffer();
@@ -171,14 +171,14 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
     // 10%でスタート（より早く開始してバッファに余裕を持たせる）
     #define AUTO_START_THRESHOLD (AUDIO_BUFFER_SIZE / 10)  // 10%
     if (!is_running && buffered_samples >= AUTO_START_THRESHOLD) {
+        float buffer_percent = (float)buffered_samples * 100.0f / AUDIO_BUFFER_SIZE;
         printf("[I2S] Auto-starting DMA (buffer: %lu/%u samples, %.1f%%)\n",
-               buffered_samples, AUDIO_BUFFER_SIZE,
-               (float)buffered_samples * 100.0f / AUDIO_BUFFER_SIZE);
+               buffered_samples, AUDIO_BUFFER_SIZE, buffer_percent);
         audio_out_i2s_start();
     }
 
-    // 100回ごとにログ出力
-    if (write_call_count % 100 == 0) {
+    // N回ごとにログ出力（頻度はconfig.hで設定）
+    if (write_call_count % STATS_LOG_FREQUENCY == 0) {
         printf("[I2S Write] Calls: %lu, Total written: %lu, Current buffer: %lu->%lu\n",
                write_call_count, total_written, buffered_before, buffered_samples);
     }
