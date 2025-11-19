@@ -184,11 +184,12 @@ static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, in
     }
 
     // PCMコールバックに渡す
-    // num_samplesは総サンプル数（左右含む）、ステレオペア数に変換する必要がある
-    // audio_out_i2s_write()はステレオペア数を期待している
+    // 重要: BTstackのSBCデコーダーは num_samples を「ステレオペア数」として渡す
+    // つまり num_samples=128 は 128ステレオペア = 256個のint16_t (左128+右128)
+    // audio_out_i2s_write()も「ステレオペア数」を期待しているので、そのまま渡す
     if (pcm_callback) {
-        uint32_t stereo_pairs = (uint32_t)num_samples / (uint8_t)num_channels;
-        pcm_callback(data, stereo_pairs, (uint8_t)num_channels, (uint32_t)sample_rate);
+        // 2で割らない！そのまま渡す
+        pcm_callback(data, (uint32_t)num_samples, (uint8_t)num_channels, (uint32_t)sample_rate);
     }
 }
 
