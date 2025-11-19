@@ -57,15 +57,12 @@ bool bt_audio_init(void) {
     printf("Initializing Bluetooth...\n");
 
     // CYW43 初期化（Pico W の Wi-Fi/Bluetooth チップ）
+    // pico_cyw43_arch_none モードを使用（バックグラウンドIRQ処理）
     if (cyw43_arch_init()) {
         printf("ERROR: Failed to initialize CYW43\n");
         return false;
     }
-    printf("CYW43 initialized\n");
-
-    // スレッディングモードを有効化（BTstack処理の安定性向上）
-    cyw43_arch_enable_threading_mode(true);
-    printf("CYW43 threading mode enabled\n");
+    printf("CYW43 initialized (background IRQ mode)\n");
 
     // HCI の初期化
     l2cap_init();
