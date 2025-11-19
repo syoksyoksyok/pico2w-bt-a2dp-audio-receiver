@@ -27,6 +27,17 @@ static uint32_t current_sample_rate = AUDIO_SAMPLE_RATE;
 static btstack_sbc_decoder_state_t sbc_decoder_state;
 static btstack_sbc_mode_t sbc_mode = SBC_MODE_STANDARD;
 
+// SBC コーデック設定（A2DP Sink用）
+// これはスマホ側に「このデバイスが対応しているSBC設定」を伝える
+static uint8_t media_sbc_codec_capabilities[] = {
+    (AVDTP_SBC_44100 << 4) | AVDTP_SBC_STEREO,  // 44.1kHz, ステレオ
+    0xFF,  // すべてのブロック長、サブバンド、割り当て方式をサポート
+    2, 53  // Min bitpool = 2, Max bitpool = 53
+};
+
+// SBC コーデック実際の設定（ネゴシエーション後に格納される）
+static uint8_t media_sbc_codec_configuration[4];
+
 // A2DP コネクション
 static uint8_t sdp_avdtp_sink_service_buffer[150];
 static uint16_t a2dp_cid = 0;
@@ -78,13 +89,14 @@ bool bt_audio_init(void) {
     sdp_register_service(sdp_avdtp_sink_service_buffer);
 
     // SBC エンドポイントを登録
+    // 重要: コーデックのcapabilitiesとconfigurationバッファを渡す
     avdtp_stream_endpoint_t *local_stream_endpoint = a2dp_sink_create_stream_endpoint(
         AVDTP_AUDIO,
         AVDTP_CODEC_SBC,
-        (uint8_t *)&sbc_decoder_state,
-        sizeof(sbc_decoder_state),
-        sdp_avdtp_sink_service_buffer,
-        sizeof(sdp_avdtp_sink_service_buffer));
+        media_sbc_codec_capabilities,      // ← このデバイスが対応するSBC設定
+        sizeof(media_sbc_codec_capabilities),
+        media_sbc_codec_configuration,     // ← ネゴシエーション後の実際の設定
+        sizeof(media_sbc_codec_configuration));
 
     if (!local_stream_endpoint) {
         printf("ERROR: Failed to create A2DP stream endpoint\n");
@@ -92,6 +104,7 @@ bool bt_audio_init(void) {
     }
 
     local_seid = avdtp_local_seid(local_stream_endpoint);
+    printf("A2DP stream endpoint created (SEID: %d)\n", local_seid);
 
     // SBC デコーダーの初期化
     btstack_sbc_decoder_init(&sbc_decoder_state, sbc_mode, &handle_pcm_data, NULL);
