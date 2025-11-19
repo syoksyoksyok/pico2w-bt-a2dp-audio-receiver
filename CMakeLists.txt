@@ -40,6 +40,9 @@ target_include_directories(pico2w_bt_a2dp_receiver PRIVATE
     ${PICO_SDK_PATH}/lib/btstack/src/classic
 )
 
+# lwIPを無効化（Bluetooth専用モード）
+set(CYW43_LWIP 0)
+
 # リンクするライブラリ
 target_link_libraries(pico2w_bt_a2dp_receiver
     pico_stdlib
@@ -60,6 +63,11 @@ pico_enable_stdio_uart(pico2w_bt_a2dp_receiver 0)
 
 # UF2 ファイルを生成
 pico_add_extra_outputs(pico2w_bt_a2dp_receiver)
+
+# コンパイル定義
+target_compile_definitions(pico2w_bt_a2dp_receiver PRIVATE
+    CYW43_LWIP=0              # lwIPを無効化
+)
 
 # ビルドオプション（最適化）
 target_compile_options(pico2w_bt_a2dp_receiver PRIVATE
