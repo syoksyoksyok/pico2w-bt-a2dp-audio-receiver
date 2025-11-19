@@ -163,6 +163,14 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
 
     total_written += samples_written;
 
+    // 自動開始: バッファが4096サンプル（約93ms分）埋まったらDMAを開始
+    // これにより、十分なバッファが確保されてから再生が始まる
+    #define AUTO_START_THRESHOLD 4096
+    if (!is_running && buffered_samples >= AUTO_START_THRESHOLD) {
+        printf("[I2S] Auto-starting DMA (buffer: %lu samples)\n", buffered_samples);
+        audio_out_i2s_start();
+    }
+
     // 100回ごとにログ出力
     if (write_call_count % 100 == 0) {
         printf("[I2S Write] Calls: %lu, Total written: %lu, Current buffer: %lu->%lu\n",

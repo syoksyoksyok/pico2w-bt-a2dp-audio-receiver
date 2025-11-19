@@ -123,7 +123,7 @@ int main(void) {
         printf("ERROR: Failed to initialize I2S audio output\n");
         return 1;
     }
-    audio_out_i2s_start();
+    // 注意: audio_out_i2s_start() はバッファが十分に埋まったら自動的に開始されます
 
     printf("\n");
 
