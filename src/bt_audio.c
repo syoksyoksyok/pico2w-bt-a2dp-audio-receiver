@@ -155,9 +155,17 @@ void bt_audio_set_pcm_callback(pcm_data_callback_t callback) {
 
 static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context) {
     UNUSED(context);
-    UNUSED(sample_rate);
+
+    // サンプルレートの更新
+    if (current_sample_rate != (uint32_t)sample_rate) {
+        current_sample_rate = (uint32_t)sample_rate;
+        printf("Sample rate: %lu Hz\n", current_sample_rate);
+    }
+
+    // PCMコールバックに渡す
+    // num_samplesは総サンプル数（左右含む）なので、ステレオペア数に変換
     if (pcm_callback) {
-        pcm_callback(data, num_samples / num_channels, num_channels, sample_rate);
+        pcm_callback(data, (uint32_t)num_samples, (uint8_t)num_channels, (uint32_t)sample_rate);
     }
 }
 
