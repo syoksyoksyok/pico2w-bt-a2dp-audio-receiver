@@ -308,25 +308,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
 static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16_t size) {
     UNUSED(seid);
-
-    // RTP ヘッダーをスキップ（12バイト）
-    int pos = 12;
-
-    // AVDTPメディアペイロードヘッダー（1バイト）をスキップ
-    pos++;
-
-    // SBCフレーム数を取得（1バイト）
-    if (pos >= size) return;
-    // uint8_t num_frames = packet[pos];
-    pos++;
-
-    // 各SBCフレームをデコード
-    while (pos < size) {
-        // 残りのデータをSBCデコーダーに渡す
-        btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, packet + pos, size - pos);
-
-        // 次のフレームへ（SBCデコーダーが自動的に処理済みバイト数を管理）
-        // 簡易実装：すべてのデータを処理したと仮定
-        break;
-    }
+    if (size < 13) return;
+    uint8_t *sbc_data = packet + 13;
+    uint16_t sbc_size = size - 13;
+    btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, sbc_data, sbc_size);
 }
