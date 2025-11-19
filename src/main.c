@@ -11,6 +11,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
+#include "hardware/clocks.h"
 
 #include "config.h"
 #include "bt_audio.h"
