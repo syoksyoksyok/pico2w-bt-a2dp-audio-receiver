@@ -115,12 +115,13 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits, uint8_t channels) {
     dma_channel_set_irq0_enabled(dma_channel, true);
     irq_set_exclusive_handler(DMA_IRQ_0, dma_handler);
 
-    // DMA割り込み優先度を最低に設定（CYW43のBluetooth処理を妨害しないため）
-    // 0x00=最高優先度、0xC0=最低優先度
-    irq_set_priority(DMA_IRQ_0, 0xC0);
+    // DMA割り込み優先度を絶対最低に設定（CYW43のBluetooth処理を妨害しないため）
+    // 0x00=最高優先度、0xFF=絶対最低優先度
+    // Cortex-M33では実際には2ビット優先度（0-3）で、0xFFは最低の3にマップされる
+    irq_set_priority(DMA_IRQ_0, 0xFF);
 
     irq_set_enabled(DMA_IRQ_0, true);
-    printf("  DMA IRQ priority set to lowest (0xC0)\n");
+    printf("  DMA IRQ priority set to absolute lowest (0xFF)\n");
 
     // バッファをクリア
     audio_out_i2s_clear_buffer();
