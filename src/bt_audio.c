@@ -63,6 +63,10 @@ bool bt_audio_init(void) {
     }
     printf("CYW43 initialized\n");
 
+    // スレッディングモードを有効化（BTstack処理の安定性向上）
+    cyw43_arch_enable_threading_mode(true);
+    printf("CYW43 threading mode enabled\n");
+
     // HCI の初期化
     l2cap_init();
 
