@@ -47,8 +47,9 @@
 
 // リングバッファサイズ（サンプル数）
 // 大きいほど安定するが、遅延も増える
-// 4秒分に拡大（最大限の安定性と音質を確保）
-#define AUDIO_BUFFER_SIZE    (AUDIO_SAMPLE_RATE * 4)  // 4秒分 = 176400サンプル
+// 1秒分（メモリ制約内で最大限の安定性を確保）
+// RP2350のSRAMは264KBなので、4秒（689KB）は不可能
+#define AUDIO_BUFFER_SIZE    (AUDIO_SAMPLE_RATE * 1)  // 1秒分 = 44100サンプル
 
 // DMA バッファサイズ（サンプル数）
 #define DMA_BUFFER_SIZE      512
