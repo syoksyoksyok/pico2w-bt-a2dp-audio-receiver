@@ -41,9 +41,10 @@ static volatile uint32_t read_pos = 0;
 static volatile uint32_t buffered_samples = 0;  // ステレオペア数
 
 // DMA バッファ（2つのバッファでピンポン方式）
-// 注意: 大きすぎるとDMA割り込みが重くなり、CYW43のBluetooth処理を妨害して切断される
-// 128サンプル = 約2.9ms@44.1kHz（安全な範囲）
-#define I2S_DMA_BUFFER_SIZE 128
+// バッファサイズを512サンプル（約11.6ms@44.1kHz）に増加
+// これにより、DMA IRQ頻度が大幅に減少し、ジッター/ノイズが低減される
+// DMA IRQ優先度を0xFF（最低）に設定済みなので、Bluetooth処理を妨害しない
+#define I2S_DMA_BUFFER_SIZE 512
 static int32_t dma_buffer[2][I2S_DMA_BUFFER_SIZE];  // 32ビット（左右16ビットずつ）
 static volatile uint8_t current_dma_buffer = 0;
 
