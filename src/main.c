@@ -3,7 +3,7 @@
  * @brief Pico 2W Bluetooth A2DP Audio Receiver - メインプログラム
  *
  * iPhone/Android スマホから Bluetooth (A2DP) で音声を受信し、
- * I2S DAC または PWM で再生するプログラム
+ * I2S DAC で再生するプログラム（I2S専用）
  */
 
 #include <stdio.h>
@@ -14,14 +14,7 @@
 
 #include "config.h"
 #include "bt_audio.h"
-
-#ifdef USE_I2S_OUTPUT
 #include "audio_out_i2s.h"
-#endif
-
-#ifdef USE_PWM_OUTPUT
-#include "audio_out_pwm.h"
-#endif
 
 // ============================================================================
 // グローバル変数
@@ -35,8 +28,10 @@ static absolute_time_t last_status_log_time;
 
 static void pcm_data_handler(const int16_t *pcm_data, uint32_t num_samples,
                               uint8_t channels, uint32_t sample_rate) {
-#ifdef USE_I2S_OUTPUT
-    // I2S 出力モードの場合
+    (void)channels;      // I2Sはステレオ固定
+    (void)sample_rate;   // サンプルレートは設定済み
+
+    // I2S 出力にPCMデータを書き込み
     uint32_t written = audio_out_i2s_write(pcm_data, num_samples);
 
     if (written < num_samples) {
@@ -44,17 +39,6 @@ static void pcm_data_handler(const int16_t *pcm_data, uint32_t num_samples,
         printf("WARNING: Audio buffer full, dropped %lu samples\n", num_samples - written);
 #endif
     }
-
-#elif defined(USE_PWM_OUTPUT)
-    // PWM 出力モードの場合
-    uint32_t written = audio_out_pwm_write(pcm_data, num_samples, channels);
-
-    if (written < num_samples) {
-#ifdef ENABLE_DEBUG_LOG
-        printf("WARNING: Audio buffer full, dropped %lu samples\n", num_samples - written);
-#endif
-    }
-#endif
 }
 
 // ============================================================================
@@ -71,7 +55,7 @@ static void log_buffer_status(void) {
 
     last_status_log_time = now;
 
-#ifdef USE_I2S_OUTPUT
+    // I2Sバッファ状態を取得して表示
     uint32_t buffered = audio_out_i2s_get_buffered_samples();
     uint32_t free_space = audio_out_i2s_get_free_space();
     uint32_t underruns, overruns;
@@ -86,23 +70,6 @@ static void log_buffer_status(void) {
     } else if (buffered > BUFFER_HIGH_THRESHOLD) {
         printf("  WARNING: Buffer level high!\n");
     }
-
-#elif defined(USE_PWM_OUTPUT)
-    uint32_t buffered = audio_out_pwm_get_buffered_samples();
-    uint32_t free_space = audio_out_pwm_get_free_space();
-    uint32_t underruns, overruns;
-    audio_out_pwm_get_stats(&underruns, &overruns);
-
-    printf("[PWM] Buffer: %lu samples | Free: %lu | Underruns: %lu | Overruns: %lu\n",
-           buffered, free_space, underruns, overruns);
-
-    // バッファ状態の警告
-    if (buffered < BUFFER_LOW_THRESHOLD) {
-        printf("  WARNING: Buffer level low!\n");
-    } else if (buffered > BUFFER_HIGH_THRESHOLD) {
-        printf("  WARNING: Buffer level high!\n");
-    }
-#endif
 }
 
 // ============================================================================
@@ -125,37 +92,22 @@ int main(void) {
     // 設定情報を表示
     printf("Configuration:\n");
     printf("  Device name: %s\n", BT_DEVICE_NAME);
-
-#ifdef USE_I2S_OUTPUT
     printf("  Output mode: I2S DAC\n");
     printf("  I2S pins: DATA=%d, BCLK=%d, LRCLK=%d\n",
            I2S_DATA_PIN, I2S_BCLK_PIN, I2S_LRCLK_PIN);
-#elif defined(USE_PWM_OUTPUT)
-    printf("  Output mode: PWM (simple DAC)\n");
-    printf("  PWM pin: %d\n", PWM_AUDIO_PIN);
-#endif
-
     printf("  Sample rate: %d Hz\n", AUDIO_SAMPLE_RATE);
-    printf("  Channels: %d\n", AUDIO_CHANNELS);
+    printf("  Channels: %d (Stereo)\n", AUDIO_CHANNELS);
     printf("  Buffer size: %d samples\n", AUDIO_BUFFER_SIZE);
     printf("\n");
 
     // オーディオ出力の初期化
-    printf("Initializing audio output...\n");
+    printf("Initializing I2S audio output...\n");
 
-#ifdef USE_I2S_OUTPUT
     if (!audio_out_i2s_init(AUDIO_SAMPLE_RATE, AUDIO_BITS_PER_SAMPLE, AUDIO_CHANNELS)) {
         printf("ERROR: Failed to initialize I2S audio output\n");
         return 1;
     }
     audio_out_i2s_start();
-#elif defined(USE_PWM_OUTPUT)
-    if (!audio_out_pwm_init(AUDIO_SAMPLE_RATE)) {
-        printf("ERROR: Failed to initialize PWM audio output\n");
-        return 1;
-    }
-    audio_out_pwm_start();
-#endif
 
     printf("\n");
 
@@ -200,11 +152,7 @@ int main(void) {
             printf("\n>>> Audio stream disconnected\n\n");
 
             // バッファをクリア
-#ifdef USE_I2S_OUTPUT
             audio_out_i2s_clear_buffer();
-#elif defined(USE_PWM_OUTPUT)
-            audio_out_pwm_clear_buffer();
-#endif
 
             was_connected = false;
         }
@@ -216,8 +164,9 @@ int main(void) {
         }
 #endif
 
-        // 短いスリープ（CPU 負荷軽減）
-        sleep_ms(1);
+        // CPU負荷軽減のため、tight_loop_contents()を使用
+        // sleep_ms(1)は使わない！→ BTstack/CYW43の割り込み処理を遅延させて切断の原因になる
+        tight_loop_contents();  // 割り込みを許可しながら効率的に待機
     }
 
     return 0;

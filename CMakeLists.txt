@@ -23,13 +23,15 @@ set(CMAKE_CXX_STANDARD 17)
 # Pico SDK を初期化
 pico_sdk_init()
 
-# 実行ファイルを作成
+# 実行ファイルを作成（I2S専用）
 add_executable(pico2w_bt_a2dp_receiver
     src/main.c
     src/bt_audio.c
     src/audio_out_i2s.c
-    src/audio_out_pwm.c
 )
+
+# PIO プログラムをヘッダーに変換
+pico_generate_pio_header(pico2w_bt_a2dp_receiver ${CMAKE_CURRENT_LIST_DIR}/src/i2s.pio)
 
 # インクルードディレクトリ
 target_include_directories(pico2w_bt_a2dp_receiver PRIVATE
@@ -41,17 +43,15 @@ target_include_directories(pico2w_bt_a2dp_receiver PRIVATE
 # リンクするライブラリ
 target_link_libraries(pico2w_bt_a2dp_receiver
     pico_stdlib
-    pico_cyw43_arch_none
+    pico_cyw43_arch_none       # Bluetooth専用モード（lwIP不要）
     pico_btstack_classic
-    pico_btstack_ble  # CYW43ドライバーが必要とするため有効化（SDK 2.2.0パッチ済み）
+    pico_btstack_ble           # CYW43ドライバーが必要とするため有効化
     pico_btstack_cyw43
     pico_btstack_sbc_encoder
     pico_btstack_sbc_decoder
-    # hardware_i2s  # SDK 2.2.0には存在しないため無効化
-    hardware_dma
-    hardware_pwm
-    hardware_pio
-    hardware_clocks
+    hardware_dma               # DMA for I2S audio
+    hardware_pio               # PIO for I2S signal generation
+    hardware_clocks            # Clock configuration for I2S
 )
 
 # USB シリアル出力を有効化（デバッグログ用）

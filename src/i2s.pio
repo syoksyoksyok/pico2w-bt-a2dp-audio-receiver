@@ -1,0 +1,87 @@
+; ============================================================================
+; PIO I2S Output Program for PCM5102 DAC
+; ============================================================================
+;
+; このPIOプログラムは、PCM5102 DAC用のI2S出力を生成します。
+;
+; フォーマット:
+;   - 16ビット ステレオ (左右チャンネル)
+;   - MSB ファースト
+;   - I2S標準フォーマット
+;
+; ピン配置:
+;   - OUT pin 0: DATA (DIN)
+;   - Side-set pin 0: BCLK (BCK)
+;   - Side-set pin 1: LRCLK (LCK/WS)
+;
+; クロック設定:
+;   - BCLK = サンプルレート × 64 (16ビット × 2チャンネル × 2)
+;   - LRCLK = サンプルレート (44.1kHz)
+;
+
+.program i2s_output
+.side_set 2 opt                ; 2ピンをサイドセットに使用 (BCLK, LRCLK)
+
+; 左チャンネル (LRCLK = 0)
+.wrap_target
+    set x, 14           side 0b10  ; LRCLK=0 (左), BCLK=1, カウンタ初期化
+left_data:
+    out pins, 1         side 0b00  ; データ出力, BCLK=0
+    jmp x-- left_data   side 0b10  ; BCLK=1, カウント減算
+
+    out pins, 1         side 0b00  ; 最後の16ビット目, BCLK=0
+    nop                 side 0b10  ; BCLK=1
+
+; 右チャンネル (LRCLK = 1)
+    set x, 14           side 0b11  ; LRCLK=1 (右), BCLK=1, カウンタ初期化
+right_data:
+    out pins, 1         side 0b01  ; データ出力, BCLK=0
+    jmp x-- right_data  side 0b11  ; BCLK=1, カウント減算
+
+    out pins, 1         side 0b01  ; 最後の16ビット目, BCLK=0
+    nop                 side 0b11  ; BCLK=1
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+
+static inline void i2s_output_program_init(PIO pio, uint sm, uint offset, uint data_pin, uint clock_pin_base, uint sample_rate) {
+    // I2S出力プログラムの初期化
+
+    // DATAピンの設定
+    pio_gpio_init(pio, data_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, data_pin, 1, true);
+
+    // BCLK, LRCLKピンの設定 (サイドセット)
+    pio_gpio_init(pio, clock_pin_base);      // BCLK
+    pio_gpio_init(pio, clock_pin_base + 1);  // LRCLK
+    pio_sm_set_consecutive_pindirs(pio, sm, clock_pin_base, 2, true);
+
+    // State Machine設定
+    pio_sm_config c = i2s_output_program_get_default_config(offset);
+
+    // OUTピン設定 (DATA)
+    sm_config_set_out_pins(&c, data_pin, 1);
+
+    // サイドセットピン設定 (BCLK, LRCLK)
+    sm_config_set_sideset_pins(&c, clock_pin_base);
+
+    // シフト設定 (32ビット = 16ビット左 + 16ビット右, MSBファースト)
+    sm_config_set_out_shift(&c, false, true, 32);  // shift_right=false (MSB first), autopull=true, threshold=32
+
+    // FIFOをTXのみに結合 (深さを2倍にする)
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    // クロック分周の計算
+    // BCLK周波数 = サンプルレート × 64
+    // PIOクロック = BCLK × 2 (BCLKの各エッジで1サイクル)
+    // 1サンプル(左右32ビット)で64 PIOクロック必要
+    float clk_div = (float)clock_get_hz(clk_sys) / (sample_rate * 64.0f * 2.0f);
+    sm_config_set_clkdiv(&c, clk_div);
+
+    // State Machineの初期化と開始
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
