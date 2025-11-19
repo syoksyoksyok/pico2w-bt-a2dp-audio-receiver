@@ -47,7 +47,8 @@
 
 // リングバッファサイズ（サンプル数）
 // 大きいほど安定するが、遅延も増える
-#define AUDIO_BUFFER_SIZE    (AUDIO_SAMPLE_RATE * 2)  // 2秒分
+// 0.5秒分に最適化（遅延を抑えつつ十分な安定性を確保）
+#define AUDIO_BUFFER_SIZE    (AUDIO_SAMPLE_RATE / 2)  // 0.5秒分 = 22050サンプル
 
 // DMA バッファサイズ（サンプル数）
 #define DMA_BUFFER_SIZE      512
