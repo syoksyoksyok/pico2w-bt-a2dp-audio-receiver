@@ -188,6 +188,20 @@ static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, in
         printf("Sample rate: %lu Hz\n", current_sample_rate);
     }
 
+    // ソフトウェアボリューム調整（クリッピング防止）
+    #if SOFTWARE_VOLUME_PERCENT < 100
+    {
+        // num_samples はステレオペア数なので、実際のサンプル数は num_samples * num_channels
+        int total_samples = num_samples * num_channels;
+        for (int i = 0; i < total_samples; i++) {
+            // 音量を調整（オーバーフロー防止のため32ビットで計算）
+            int32_t sample = data[i];
+            sample = (sample * SOFTWARE_VOLUME_PERCENT) / 100;
+            data[i] = (int16_t)sample;
+        }
+    }
+    #endif
+
     // PCMコールバックに渡す
     // 重要: BTstackのSBCデコーダーは num_samples を「ステレオペア数」として渡す
     // つまり num_samples=128 は 128ステレオペア = 256個のint16_t (左128+右128)
