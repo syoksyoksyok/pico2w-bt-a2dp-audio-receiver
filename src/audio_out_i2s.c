@@ -168,8 +168,8 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
 
     // 自動開始: バッファがある程度埋まったらDMAを開始
     // buffered_samplesはステレオペア数なので、AUDIO_BUFFER_SIZEと比較
-    // 10%でスタート（より早く開始してバッファに余裕を持たせる）
-    #define AUTO_START_THRESHOLD (AUDIO_BUFFER_SIZE / 10)  // 10%
+    // 20%でスタート（バッファに余裕を持たせてUnderrunsを防止）
+    #define AUTO_START_THRESHOLD (AUDIO_BUFFER_SIZE / 5)  // 20%
     if (!is_running && buffered_samples >= AUTO_START_THRESHOLD) {
         float buffer_percent = (float)buffered_samples * 100.0f / AUDIO_BUFFER_SIZE;
         printf("[I2S] Auto-starting DMA (buffer: %lu/%u samples, %.1f%%)\n",
