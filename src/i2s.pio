@@ -95,6 +95,5 @@ static inline void i2s_output_program_init(PIO pio, uint sm, uint offset, uint d
     sm_config_set_clkdiv(&c, clk_div);
 
     pio_sm_init(pio, sm, offset, &c);
-    pio_sm_set_enabled(pio, sm, true);
 }
 %}

@@ -16,6 +16,7 @@
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/clocks.h"
+#include "hardware/sync.h"
 
 // PIOプログラムのインクルード（ビルド時に自動生成される）
 #include "i2s.pio.h"
@@ -44,7 +45,7 @@ static volatile uint32_t buffered_samples = 0;  // ステレオペア数
 // バッファサイズを512サンプル（約11.6ms@44.1kHz）に増加
 // これにより、DMA IRQ頻度が大幅に減少し、ジッター/ノイズが低減される
 // DMA IRQ優先度を0xFF（最低）に設定済みなので、Bluetooth処理を妨害しない
-#define I2S_DMA_BUFFER_SIZE 512
+#define I2S_DMA_BUFFER_SIZE DMA_BUFFER_SIZE
 static int32_t dma_buffer[2][I2S_DMA_BUFFER_SIZE];  // 32ビット（左右16ビットずつ）
 static volatile uint8_t current_dma_buffer = 0;
 
@@ -61,6 +62,10 @@ static bool is_running = false;
 
 static void dma_handler(void);
 static void fill_dma_buffer(int32_t *buffer, uint32_t num_samples);
+
+static inline uint32_t ring_buffer_capacity(void) {
+    return I2S_BUFFER_SIZE / 2;
+}
 
 // ============================================================================
 // I2S オーディオ出力の初期化
@@ -91,6 +96,8 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits, uint8_t channels) {
 
     // PIO State Machineを初期化
     i2s_output_program_init(pio, sm, offset, I2S_DATA_PIN, I2S_BCLK_PIN, sample_rate);
+    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_clear_fifos(pio, sm);
 
     // DMA チャンネルを取得
     dma_channel = dma_claim_unused_channel(true);
@@ -141,15 +148,19 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
 
     static uint32_t write_call_count = 0;
     static uint32_t total_written = 0;
+    uint32_t save = save_and_disable_interrupts();
     uint32_t buffered_before = buffered_samples;
+    restore_interrupts(save);
 
     write_call_count++;
 
     // num_samplesはステレオペア数として扱う
     for (uint32_t i = 0; i < num_samples; i++) {
-        uint32_t free_space = I2S_BUFFER_SIZE / 2 - buffered_samples;
+        save = save_and_disable_interrupts();
+        bool buffer_full = buffered_samples >= ring_buffer_capacity();
+        restore_interrupts(save);
 
-        if (free_space == 0) {
+        if (buffer_full) {
             // バッファがいっぱい（オーバーラン）
             overrun_count++;
             break;
@@ -159,8 +170,11 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
         ring_buffer[write_pos * 2] = pcm_data[i * 2];       // 左チャンネル
         ring_buffer[write_pos * 2 + 1] = pcm_data[i * 2 + 1]; // 右チャンネル
 
-        write_pos = (write_pos + 1) % (I2S_BUFFER_SIZE / 2);
+        save = save_and_disable_interrupts();
+        write_pos = (write_pos + 1) % ring_buffer_capacity();
         buffered_samples++;
+        restore_interrupts(save);
+
         samples_written++;
     }
 
@@ -170,17 +184,21 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
     // buffered_samplesはステレオペア数なので、AUDIO_BUFFER_SIZEと比較
     // 20%でスタート（バッファに余裕を持たせてUnderrunsを防止）
     #define AUTO_START_THRESHOLD (AUDIO_BUFFER_SIZE / 5)  // 20%
-    if (!is_running && buffered_samples >= AUTO_START_THRESHOLD) {
-        float buffer_percent = (float)buffered_samples * 100.0f / AUDIO_BUFFER_SIZE;
+    save = save_and_disable_interrupts();
+    uint32_t buffered_after = buffered_samples;
+    restore_interrupts(save);
+
+    if (!is_running && buffered_after >= AUTO_START_THRESHOLD) {
+        float buffer_percent = (float)buffered_after * 100.0f / AUDIO_BUFFER_SIZE;
         printf("[I2S] Auto-starting DMA (buffer: %lu/%u samples, %.1f%%)\n",
-               buffered_samples, AUDIO_BUFFER_SIZE, buffer_percent);
+               buffered_after, AUDIO_BUFFER_SIZE, buffer_percent);
         audio_out_i2s_start();
     }
 
     // N回ごとにログ出力（頻度はconfig.hで設定）
     if (write_call_count % STATS_LOG_FREQUENCY == 0) {
         printf("[I2S Write] Calls: %lu, Total written: %lu, Current buffer: %lu->%lu\n",
-               write_call_count, total_written, buffered_before, buffered_samples);
+               write_call_count, total_written, buffered_before, buffered_after);
     }
 
     return samples_written;
@@ -191,7 +209,10 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
 // ============================================================================
 
 uint32_t audio_out_i2s_get_free_space(void) {
-    return (I2S_BUFFER_SIZE / 2) - buffered_samples;
+    uint32_t save = save_and_disable_interrupts();
+    uint32_t buffered = buffered_samples;
+    restore_interrupts(save);
+    return ring_buffer_capacity() - buffered;
 }
 
 // ============================================================================
@@ -199,7 +220,10 @@ uint32_t audio_out_i2s_get_free_space(void) {
 // ============================================================================
 
 uint32_t audio_out_i2s_get_buffered_samples(void) {
-    return buffered_samples;
+    uint32_t save = save_and_disable_interrupts();
+    uint32_t buffered = buffered_samples;
+    restore_interrupts(save);
+    return buffered;
 }
 
 // ============================================================================
@@ -222,6 +246,9 @@ void audio_out_i2s_start(void) {
     printf("  PIO SM enabled\n");
 
     // DMA を開始（buffer[0]から）
+    dma_channel_set_read_addr(dma_channel, dma_buffer[0], false);
+    dma_channel_set_trans_count(dma_channel, I2S_DMA_BUFFER_SIZE, false);
+    dma_channel_acknowledge_irq0(dma_channel);
     dma_channel_start(dma_channel);
     printf("  DMA started\n");
 
@@ -253,11 +280,13 @@ void audio_out_i2s_stop(void) {
 // ============================================================================
 
 void audio_out_i2s_clear_buffer(void) {
+    uint32_t save = save_and_disable_interrupts();
     write_pos = 0;
     read_pos = 0;
     buffered_samples = 0;
     underrun_count = 0;
     overrun_count = 0;
+    restore_interrupts(save);
 
     // 無音で埋める
     memset(ring_buffer, 0, sizeof(ring_buffer));
@@ -287,7 +316,7 @@ static void fill_dma_buffer(int32_t *buffer, uint32_t num_samples) {
             // 32ビットワードにパック（上位16ビット=左、下位16ビット=右）
             buffer[i] = ((uint32_t)(uint16_t)left << 16) | (uint16_t)right;
 
-            read_pos = (read_pos + 1) % (I2S_BUFFER_SIZE / 2);
+            read_pos = (read_pos + 1) % ring_buffer_capacity();
             buffered_samples--;
         } else {
             // データがない場合は無音を出力（アンダーラン）

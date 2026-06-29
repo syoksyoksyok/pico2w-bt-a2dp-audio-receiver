@@ -167,7 +167,8 @@ int main(void) {
         } else if (!is_connected && was_connected) {
             printf("\n>>> Audio stream disconnected\n\n");
 
-            // バッファをクリア
+            // DMA/PIOを停止してからバッファをクリア
+            audio_out_i2s_stop();
             audio_out_i2s_clear_buffer();
 
             was_connected = false;

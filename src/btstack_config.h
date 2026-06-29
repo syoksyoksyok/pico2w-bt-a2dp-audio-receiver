@@ -10,7 +10,9 @@
 // BTstack Features
 // ============================================================================
 
+#ifndef ENABLE_CLASSIC
 #define ENABLE_CLASSIC
+#endif
 // BLE is enabled at library level (required by pico_btstack_cyw43)
 // but we disable peripheral/central roles since we only use Classic Bluetooth
 #define ENABLE_LE_PERIPHERAL 0
