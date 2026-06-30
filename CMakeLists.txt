@@ -3,8 +3,6 @@ cmake_minimum_required(VERSION 3.13)
 # Pico 2W (RP2350 + CYW43) 設定
 set(PICO_BOARD pico2_w)
 
-# picotoolのビルドをスキップ（mbedtlsエラー回避）
-set(SKIP_PICO_PICOTOOL 1)
 
 # Pico SDK のパスを設定（環境変数 PICO_SDK_PATH から取得）
 set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})

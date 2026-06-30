@@ -349,11 +349,14 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     media_total_bytes += (size > SBC_MEDIA_PACKET_HEADER_OFFSET) ?
                          (size - SBC_MEDIA_PACKET_HEADER_OFFSET) : 0;
 
+    uint16_t media_data_size = (size > SBC_MEDIA_PACKET_HEADER_OFFSET) ?
+                               (size - SBC_MEDIA_PACKET_HEADER_OFFSET) : 0;
+
     // 最初の数回だけログ出力（デバッグ用）
     if (media_packet_count <= INITIAL_MEDIA_LOG_COUNT) {
         printf("[MEDIA] Packet #%lu: size=%u, offset=%d, data_size=%u\n",
                media_packet_count, size, SBC_MEDIA_PACKET_HEADER_OFFSET,
-               size - SBC_MEDIA_PACKET_HEADER_OFFSET);
+               media_data_size);
     }
 
     // N回ごとに統計を表示（頻度はconfig.hで設定）

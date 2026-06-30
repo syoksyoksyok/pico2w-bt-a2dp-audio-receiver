@@ -90,14 +90,18 @@ cd pico2w-bt-a2dp-audio-receiver
 
 ### 4. ビルド
 
+`.uf2` を生成する通常ビルドです。Pico SDK が `picotool` を見つけられない場合は、SDK がビルド用の picotool を準備します。
+
 ```bash
 mkdir build
 cd build
-cmake -DPICO_NO_PICOTOOL=1 ..
-make -j4
+cmake ..
+cmake --build .
 ```
 
 成功すると `build/pico2w_bt_a2dp_receiver.uf2` が生成されます。
+
+`-DPICO_NO_PICOTOOL=1` を付けると picotool を使わないため、環境によっては `.elf`、`.bin`、`.hex` だけが生成され、`.uf2` は生成されません。
 
 ### 5. Pico 2 W への書き込み
 
