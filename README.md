@@ -10,7 +10,7 @@ Raspberry Pi Pico 2 W を Bluetooth オーディオレシーバー（A2DP Sink�
 
 - **A2DP Sink プロファイル対応**: iPhone/Android から Bluetooth スピーカーとして認識される
 - **SBC コーデックのデコード**: Bluetooth 音声ストリームを 16bit stereo PCM に変換
-- **I2S DAC 出力専用**: PCM5102A, UDA1334A, MAX98357A などの I2S DAC/アンプに対応
+- **PCM5102A I2S DAC 出力専用**: PIO + DMA で PCM5102A へ I2S 音声を出力
 - **PIO + DMA + リングバッファ方式**: Bluetooth 処理を優先しながら連続再生する
 - **USB シリアルログ**: 接続状態、バッファ状態、underrun/overrun を確認できる
 
@@ -19,34 +19,26 @@ Raspberry Pi Pico 2 W を Bluetooth オーディオレシーバー（A2DP Sink�
 ### ハードウェア
 
 1. Raspberry Pi Pico 2 W x 1
-2. I2S DAC モジュール x 1
-   - 推奨: PCM5102A
-   - 利用可: UDA1334A, MAX98357A など
-3. スピーカー、アンプ、またはヘッドホン出力に接続できるオーディオ機器
+2. PCM5102A I2S DAC モジュール x 1
+3. ライン入力付きアンプ、アクティブスピーカー、またはヘッドホンアンプ
 4. Micro USB ケーブル
 5. ブレッドボードとジャンパーワイヤー
 
 ### BOM（部品表）
 
-PCM5102A を使う標準構成の部品表です。MAX98357A を使う場合は、I2S DAC モジュールを MAX98357A モジュールに置き換えてください。
+PCM5102A を使う標準構成の部品表です。
 
 | No. | 部品 | 数量 | 用途 / 備考 |
 |-----|------|------|-------------|
 | 1 | Raspberry Pi Pico 2 W | 1 | MCU。Bluetooth A2DP Sink と I2S 出力を担当 |
 | 2 | PCM5102A I2S DAC モジュール | 1 | I2S をアナログ L/R 音声に変換。`DIN`, `BCK`, `LCK/LRCK`, `VCC`, `GND` があるもの |
 | 3 | アンプまたはアクティブスピーカー | 1 | PCM5102A の `OUTL` / `OUTR` を接続。ヘッドホン直結よりアンプ経由を推奨 |
-| 4 | スピーカーまたはヘッドホン | 1 | 使用するアンプ/DAC 出力に合わせる |
+| 4 | スピーカーまたはヘッドホン | 1 | 使用するアンプ、アクティブスピーカー、ヘッドホンアンプに合わせる |
 | 5 | Micro USB ケーブル | 1 | Pico 2 W への給電、書き込み、USB シリアルログ確認 |
 | 6 | ブレッドボード | 1 | 試作配線用。直配線する場合は省略可 |
 | 7 | ジャンパーワイヤー | 10本程度 | I2S 信号、電源、GND、PCM5102A 設定ピンの接続 |
 | 8 | 0.1uF セラミックコンデンサ | 1以上 | 任意。DAC 電源近くのデカップリング用。ノイズ対策 |
 
-PCM5102A の代わりに MAX98357A を使う場合の差分です。
-
-| 置き換える部品 | 数量 | 備考 |
-|----------------|------|------|
-| MAX98357A I2S アンプモジュール | 1 | `DIN`, `BCLK`, `LRC/LRCLK`, `VIN`, `GND`, スピーカー出力 `+` / `-` を使用 |
-| 外部電源 | 必要に応じて | 大きめのスピーカーを鳴らす場合に使用。GND は Pico 2 W と共通化する |
 
 ### ソフトウェア
 
@@ -197,7 +189,7 @@ Stream started - Audio playback begins
 ### 接続できるが音が出ない
 
 - [WIRING.md](WIRING.md) の I2S 配線を確認する
-- Pico 2 W と DAC の GND が共通になっているか確認する
+- Pico 2 W と PCM5102A の GND が共通になっているか確認する
 - PCM5102A の `XSMT` が 3.3V、`FMT` が GND、`SCK` が GND になっているか確認する
 - スマホ側とアンプ側の音量を確認する
 
@@ -206,7 +198,7 @@ Stream started - Audio playback begins
 - USB シリアルログで `Underruns`、`Overruns`、`Dropped` を確認する
 - USB ハブ経由なら PC 直結または安定した電源に変更する
 - I2S の配線を短くし、GND 接続を確実にする
-- DAC の電源近くに 0.1uF 程度のデカップリングコンデンサを追加する
+- PCM5102A の電源近くに 0.1uF 程度のデカップリングコンデンサを追加する
 
 ## 技術詳細
 
@@ -220,7 +212,7 @@ iPhone/Android
   -> 16bit stereo PCM ring buffer
   -> DMA ping-pong buffer
   -> PIO I2S output
-  -> I2S DAC / amplifier
+  -> PCM5102A I2S DAC
 ```
 
 ### 現在の主要設定
