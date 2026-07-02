@@ -1,10 +1,10 @@
 # Pico 2 W Bluetooth A2DP Audio Receiver
 
-Raspberry Pi Pico 2 W を Bluetooth オーディオレシーバー（A2DP Sink）として動作させ、スマホから受信した音声を I2S DAC へ出力するプログラムです。
+Raspberry Pi Pico 2 W を Bluetooth オーディオレシーバー（A2DP Sink）として動作させ、スマホから受信した音声を PCM5102A I2S DAC へ出力するプログラムです。
 
 ## 概要
 
-このプロジェクトは Raspberry Pi Pico 2 W（RP2350 + CYW43）専用です。Bluetooth Classic の A2DP Sink としてスマホから SBC 音声を受信し、BTstack の SBC デコーダーで PCM に変換して、PIO + DMA で I2S DAC に送ります。
+このプロジェクトは Raspberry Pi Pico 2 W（RP2350 + CYW43）専用です。Bluetooth Classic の A2DP Sink としてスマホから SBC 音声を受信し、BTstack の SBC デコーダーで PCM に変換して、PIO + DMA で PCM5102A I2S DAC に送ります。
 
 ### 主な機能
 
@@ -38,7 +38,6 @@ PCM5102A を使う標準構成の部品表です。
 | 6 | ブレッドボード | 1 | 試作配線用。直配線する場合は省略可 |
 | 7 | ジャンパーワイヤー | 10本程度 | I2S 信号、電源、GND、PCM5102A 設定ピンの接続 |
 | 8 | 0.1uF セラミックコンデンサ | 1以上 | 任意。DAC 電源近くのデカップリング用。ノイズ対策 |
-
 
 ### ソフトウェア
 

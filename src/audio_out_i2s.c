@@ -2,7 +2,7 @@
  * @file audio_out_i2s.c
  * @brief I2S DAC オーディオ出力モジュール（PIO + DMA実装）
  *
- * PCM5102 DAC用のI2S出力を、Raspberry Pi PicoのPIOとDMAを使用して実装
+ * PCM5102A DAC用のI2S出力を、Raspberry Pi PicoのPIOとDMAを使用して実装
  */
 
 #include "audio_out_i2s.h"
@@ -88,11 +88,11 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits, uint8_t channels) {
     printf("  PIO program loaded at offset %d\n", offset);
 
     // PIOクロック設定の計算と表示
-    uint32_t pio_clk_freq = sample_rate * 66;  // 66サイクル/ステレオペア
+    uint32_t pio_clk_freq = sample_rate * PIO_CYCLES_PER_STEREO_SAMPLE;
     uint32_t sys_clk = clock_get_hz(clk_sys);
     float clk_div = (float)sys_clk / (float)pio_clk_freq;
     printf("  PIO clock: %lu Hz (divider: %.2f)\n", pio_clk_freq, clk_div);
-    printf("  BCLK frequency: %lu Hz (64 × sample rate)\n", sample_rate * 64);
+    printf("  BCLK frequency: %lu Hz (generated)\n", pio_clk_freq / 2);
 
     // PIO State Machineを初期化
     i2s_output_program_init(pio, sm, offset, I2S_DATA_PIN, I2S_BCLK_PIN, sample_rate);
@@ -341,6 +341,7 @@ static void dma_handler(void) {
         uint8_t next_buffer = 1 - current_dma_buffer;
 
         // DMAを次のバッファで即座に再起動（遅延を最小化）
+        dma_channel_set_trans_count(dma_channel, I2S_DMA_BUFFER_SIZE, false);
         dma_channel_set_read_addr(dma_channel, dma_buffer[next_buffer], true);
 
         // 終わったバッファを再充填（次回の使用のため）
