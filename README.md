@@ -1,232 +1,169 @@
 # Pico 2 W Bluetooth A2DP Audio Receiver
 
-Raspberry Pi Pico 2 W を Bluetooth オーディオレシーバー（A2DP Sink）として動作させ、スマホから受信した音声を PCM5102A I2S DAC へ出力するプログラムです。
+Raspberry Pi Pico 2 W を Bluetooth オーディオレシーバー（A2DP Sink: Bluetooth 音声の受信・再生側）として動作させ、スマホから受信した音声を PCM5102A I2S DAC へ出力するプログラムです。
 
-## 概要
+## できること
 
-このプロジェクトは Raspberry Pi Pico 2 W（RP2350 + CYW43）専用です。Bluetooth Classic の A2DP Sink としてスマホから SBC 音声を受信し、BTstack の SBC デコーダーで PCM に変換して、PIO + DMA で PCM5102A I2S DAC に送ります。
-
-### 主な機能
-
-- **A2DP Sink プロファイル対応**: iPhone/Android から Bluetooth スピーカーとして認識される
-- **SBC コーデックのデコード**: Bluetooth 音声ストリームを 16bit stereo PCM に変換
-- **PCM5102A I2S DAC 出力専用**: PIO + DMA で PCM5102A へ I2S 音声を出力
-- **PIO + DMA + リングバッファ方式**: Bluetooth 処理を優先しながら連続再生する
-- **USB シリアルログ**: 接続状態、バッファ状態、underrun/overrun を確認できる
+- iPhone / Android から Bluetooth スピーカーとして接続
+- Bluetooth A2DP の SBC 音声を 16bit stereo PCM にデコード
+- PIO + DMA で PCM5102A へ I2S 出力
+- 再生中に別スマホから接続して音声接続を奪い取り可能
+- USB シリアルログで接続状態を確認可能
 
 ## 必要なもの
 
-### ハードウェア
+| 種類 | 内容 |
+|---|---|
+| MCU | Raspberry Pi Pico 2 W |
+| DAC | PCM5102A I2S DAC モジュール |
+| 出力先 | ライン入力付きアンプ、アクティブスピーカー、またはヘッドホンアンプ |
+| その他 | USB ケーブル、ジャンパーワイヤー、必要に応じてブレッドボード |
 
-1. Raspberry Pi Pico 2 W x 1
-2. PCM5102A I2S DAC モジュール x 1
-3. ライン入力付きアンプ、アクティブスピーカー、またはヘッドホンアンプ
-4. Micro USB ケーブル
-5. ブレッドボードとジャンパーワイヤー
+PCM5102A はスピーカーを直接駆動するアンプではありません。パッシブスピーカーを使う場合は、PCM5102A の後段にアンプを接続してください。
 
-### BOM（部品表）
+## 重要な前提
 
-PCM5102A を使う標準構成の部品表です。
+このプロジェクトの配線は、PCM5102A モジュールが [PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) と同じジャンパ設定になっていることを前提にしています。
 
-| No. | 部品 | 数量 | 用途 / 備考 |
-|-----|------|------|-------------|
-| 1 | Raspberry Pi Pico 2 W | 1 | MCU。Bluetooth A2DP Sink と I2S 出力を担当 |
-| 2 | PCM5102A I2S DAC モジュール | 1 | I2S をアナログ L/R 音声に変換。`DIN`, `BCK`, `LCK/LRCK`, `VCC`, `GND` があるもの |
-| 3 | アンプまたはアクティブスピーカー | 1 | PCM5102A の `OUTL` / `OUTR` を接続。ヘッドホン直結よりアンプ経由を推奨 |
-| 4 | スピーカーまたはヘッドホン | 1 | 使用するアンプ、アクティブスピーカー、ヘッドホンアンプに合わせる |
-| 5 | Micro USB ケーブル | 1 | Pico 2 W への給電、書き込み、USB シリアルログ確認 |
-| 6 | ブレッドボード | 1 | 試作配線用。直配線する場合は省略可 |
-| 7 | ジャンパーワイヤー | 10本程度 | I2S 信号、電源、GND、PCM5102A 設定ピンの接続 |
-| 8 | 0.1uF セラミックコンデンサ | 1以上 | 任意。DAC 電源近くのデカップリング用。ノイズ対策 |
+ジャンパ設定が異なる場合、Bluetooth 接続はできても音が出ないことがあります。配線前に [WIRING.md](WIRING.md) を確認してください。
 
-### ソフトウェア
+## 配線概要
 
-1. Pico 2 W / RP2350 に対応した Pico SDK 2.x
-2. CMake 3.13 以降
-3. GNU Arm Embedded Toolchain
-4. Git
+デフォルトの I2S ピンは以下です。
 
-## ファイル構成
+| Pico 2 W | PCM5102A | 用途 |
+|---|---|---|
+| GPIO 26 | DIN | I2S データ |
+| GPIO 27 | BCK / BCLK | I2S ビットクロック |
+| GPIO 28 | LCK / LRCK / WS | I2S 左右チャンネルクロック |
+| 3V3 | VCC / VIN | DAC 電源 |
+| GND | GND | 共通 GND |
 
-主なファイルとディレクトリの役割です。
+詳しい配線、PCM5102A のジャンパ設定、音が出ない場合の確認項目は [WIRING.md](WIRING.md) を参照してください。
 
-| パス | 役割 |
-|------|------|
-| `README.md` | プロジェクト概要、必要なもの、ビルド方法、使い方の説明 |
-| `WIRING.md` | Pico 2 W と PCM5102A I2S DAC の物理配線ガイド |
-| `CMakeLists.txt` | CMake のビルド設定。ソース、Pico SDK、出力ターゲットを定義 |
-| `.gitignore` | Git 管理対象外にするファイル設定 |
-| `boards/` | ボード定義用のヘッダ置き場 |
-| `boards/pico2_w.h` | Raspberry Pi Pico 2 W 向けのボード設定 |
-| `src/` | アプリケーション本体のソースコード |
-| `src/main.c` | メイン処理。初期化、Bluetooth A2DP、音声出力処理の起点 |
-| `src/config.h` | デバイス名、音声設定、I2S ピン番号などの設定値 |
-| `src/bt_audio.c` / `src/bt_audio.h` | Bluetooth A2DP 音声受信まわりの処理 |
-| `src/audio_out_i2s.c` / `src/audio_out_i2s.h` | PCM5102A へ出力する I2S 音声出力処理 |
-| `src/audio_out_pwm.c` / `src/audio_out_pwm.h` | PWM 音声出力用の実装。現在の標準配線では使用しない |
-| `src/i2s.pio` | PIO を使った I2S 出力プログラム |
+## ビルド環境
 
-`build/`、`build-pico/`、`build-pico-uf2/` はローカルのビルド生成物です。中間ファイルや `.elf`、`.bin`、`.hex`、`.uf2` などが出力されます。
+- Pico SDK 2.x
+- CMake 3.13 以降
+- Arm GNU Toolchain
+- Git
 
-## セットアップ
-
-### 1. Pico SDK の準備
-
-Pico SDK をインストールし、`PICO_SDK_PATH` を設定します。
+`PICO_SDK_PATH` を Pico SDK の場所に設定してからビルドします。
 
 ```bash
-cd ~
 git clone https://github.com/raspberrypi/pico-sdk.git
 cd pico-sdk
 git submodule update --init
-export PICO_SDK_PATH=~/pico-sdk
+export PICO_SDK_PATH=$PWD
 ```
 
-### 2. プロジェクトの取得
+Windows の PowerShell では例として以下のように設定します。
+
+```powershell
+$env:PICO_SDK_PATH = "C:\pico\pico-sdk"
+```
+
+## ビルド方法
 
 ```bash
 git clone https://github.com/syoksyoksyok/pico2w-bt-a2dp-audio-receiver.git
 cd pico2w-bt-a2dp-audio-receiver
-```
-
-### 3. ピン設定の確認
-
-デフォルトの I2S ピンは `src/config.h` で定義されています。
-
-```c
-#define I2S_DATA_PIN    26    // DAC DIN
-#define I2S_BCLK_PIN    27    // DAC BCK
-#define I2S_LRCLK_PIN   28    // DAC LCK / LRCK / WS
-```
-
-配線の詳細は [WIRING.md](WIRING.md) を参照してください。
-
-### 4. ビルド
-
-`.uf2` を生成する通常ビルドです。Pico SDK が `picotool` を見つけられない場合は、SDK がビルド用の picotool を準備します。
-
-```bash
 mkdir build
 cd build
 cmake ..
 cmake --build .
 ```
 
-成功すると `build/pico2w_bt_a2dp_receiver.uf2` が生成されます。
+成功すると以下が生成されます。
 
-`-DPICO_NO_PICOTOOL=1` を付けると picotool を使わないため、環境によっては `.elf`、`.bin`、`.hex` だけが生成され、`.uf2` は生成されません。
+```text
+build/pico2w_bt_a2dp_receiver.uf2
+```
 
-### 5. Pico 2 W への書き込み
+## Pico 2 W への書き込み
 
-1. Pico 2 W の BOOTSEL ボタンを押しながら USB 接続する
-2. PC に `RPI-RP2` ドライブとしてマウントされる
-3. `pico2w_bt_a2dp_receiver.uf2` を `RPI-RP2` ドライブへコピーする
-4. Pico 2 W が自動再起動してプログラムが開始される
+1. Pico 2 W の `BOOTSEL` ボタンを押しながら USB 接続する
+2. PC に `RPI-RP2` ドライブとして表示される
+3. 生成された `pico2w_bt_a2dp_receiver.uf2` を `RPI-RP2` へコピーする
+4. Pico 2 W が自動再起動する
 
 ## 使い方
 
-### 起動ログの確認
+1. Pico 2 W を起動する
+2. スマホの Bluetooth 設定を開く
+3. `Pico2W Audio Receiver` を選んで接続する
+4. スマホの音楽アプリで再生する
 
-USB シリアルを 115200 bps で開きます。
+USB シリアルログを確認する場合は 115200 bps で開きます。
 
 ```bash
 screen /dev/ttyACM0 115200
 ```
 
-起動時の主なログ例です。
+起動後、接続できる状態になると以下のような案内が出ます。
 
 ```text
-================================================
-  Pico 2W Bluetooth A2DP Audio Receiver
-================================================
-
-Configuration:
-  Device name: Pico2W Audio Receiver
-  Output mode: I2S DAC
-  I2S pins: DATA=26, BCLK=27, LRCLK=28
-  Sample rate: 44100 Hz
-  Channels: 2 (Stereo)
-  Buffer size: 44100 samples
+Ready! Waiting for Bluetooth connection...
+Device name: Pico2W Audio Receiver
 ```
 
-### スマホから接続
+## 設定変更
 
-1. スマホの Bluetooth 設定を開く
-2. `Pico2W Audio Receiver` を選択する
-3. ペアリング後、音楽アプリから再生する
+主な設定は [src/config.h](src/config.h) にあります。
 
-接続時のログ例です。
+| 設定 | 初期値 | 内容 |
+|---|---:|---|
+| `BT_DEVICE_NAME` | `Pico2W Audio Receiver` | Bluetooth 表示名 |
+| `AUDIO_SAMPLE_RATE` | `44100` | サンプリングレート |
+| `I2S_DATA_PIN` | `26` | I2S DATA |
+| `I2S_BCLK_PIN` | `27` | I2S BCLK |
+| `I2S_LRCLK_PIN` | `28` | I2S LRCLK |
+| `AUDIO_BUFFER_SIZE` | 1 秒分 | 受信揺らぎ吸収用リングバッファ |
+| `AUTO_START_THRESHOLD` | 約 33% | 再生開始までに貯めるバッファ量 |
 
-```text
-A2DP connection established: XX:XX:XX:XX:XX:XX (CID: 0x0040)
-Stream established: XX:XX:XX:XX:XX:XX
-SBC configuration received: channels 2, sample rate 44100 Hz
-Stream started - Audio playback begins
-
->>> Audio stream connected!
-```
-
-## 設定
-
-### デバイス名
-
-`src/config.h` で変更できます。
-
-```c
-#define BT_DEVICE_NAME "Pico2W Audio Receiver"
-```
-
-### サンプリングレート
-
-現在の A2DP SBC capability と I2S 設定は **44.1kHz 固定**です。
-
-```c
-#define AUDIO_SAMPLE_RATE 44100
-```
-
-48kHz 化する場合は、`AUDIO_SAMPLE_RATE` だけでなく `bt_audio.c` の SBC capability と I2S 初期化、バッファ計算を一貫して変更してください。
-
-### バッファサイズ
-
-```c
-#define AUDIO_BUFFER_SIZE (AUDIO_SAMPLE_RATE * 1)  // 1秒分 = 44100ステレオペア
-#define DMA_BUFFER_SIZE   512                      // 約11.6ms分
-```
-
-メモリ使用量の目安です。
-
-- 1秒分: 約176KB（16bit stereo のリングバッファとして使用。推奨）
-- 2秒分: 約352KB（RP2350 の SRAM 264KB を超えるため不可）
-- 4秒分: 約705KB（不可）
+現在の A2DP / I2S 設定は 44.1kHz 前提です。48kHz へ変更する場合は、`config.h` だけでなく `src/bt_audio.c` の SBC capability と I2S 関連計算も合わせて変更してください。
 
 ## トラブルシューティング
 
 ### スマホから見えない
 
-- Pico 2 W が起動しているか USB シリアルログで確認する
-- Pico 2 W の電源を入れ直す
+- Pico 2 W が起動しているか確認する
 - スマホ側 Bluetooth をオフ/オンする
+- Pico 2 W を再起動する
 
 ### 接続できるが音が出ない
 
-- [WIRING.md](WIRING.md) の I2S 配線を確認する
-- Pico 2 W と PCM5102A の GND が共通になっているか確認する
-- PCM5102A の `XSMT` が 3.3V、`FMT` が GND、`SCK` が GND になっているか確認する
-- スマホ側とアンプ側の音量を確認する
+- [WIRING.md](WIRING.md) の配線を確認する
+- PCM5102A のジャンパ設定が [PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) と同じか確認する
+- Pico 2 W と PCM5102A の GND が共通か確認する
+- スマホ側、アンプ側、スピーカー側の音量を確認する
+- Android では一度ペアリング情報を削除して再接続する
 
 ### 音が途切れる、ノイズが入る
 
-- USB シリアルログで `Underruns`、`Overruns`、`Dropped` を確認する
-- USB ハブ経由なら PC 直結または安定した電源に変更する
-- I2S の配線を短くし、GND 接続を確実にする
-- PCM5102A の電源近くに 0.1uF 程度のデカップリングコンデンサを追加する
+- USB ハブではなく PC 直結、または安定した USB 電源を使う
+- I2S 配線を短くする
+- GND 配線を短く確実にする
+- PCM5102A の電源近くに 0.1uF 程度のコンデンサを追加する
 
-## 技術詳細
+## ファイル構成
 
-### データ経路
+| パス | 内容 |
+|---|---|
+| `README.md` | 概要、ビルド、使い方 |
+| `WIRING.md` | Pico 2 W と PCM5102A の配線 |
+| `PCM5102A_jumper connection.png` | 前提となる PCM5102A ジャンパ設定の写真 |
+| `src/main.c` | メインループと初期化 |
+| `src/bt_audio.c` | Bluetooth A2DP Sink 処理 |
+| `src/audio_out_i2s.c` | I2S / DMA 音声出力 |
+| `src/config.h` | ユーザー設定 |
+| `src/i2s.pio` | I2S 出力用 PIO プログラム |
+| `CMakeLists.txt` | ビルド設定 |
+
+## 技術メモ
 
 ```text
-iPhone/Android
+スマホ
   -> Bluetooth A2DP SBC
   -> BTstack A2DP Sink
   -> SBC Decoder
@@ -234,25 +171,26 @@ iPhone/Android
   -> DMA ping-pong buffer
   -> PIO I2S output
   -> PCM5102A I2S DAC
+  -> アンプ / スピーカー
 ```
 
-### 現在の主要設定
+主な現在値:
 
 - Bluetooth: Classic A2DP Sink
-- SBC: 44.1kHz stereo
+- SBC: 44.1kHz, Stereo / Joint Stereo, bitpool max 35
 - PCM: 16bit stereo
-- I2S PIO: 66 cycles / stereo sample
-- Ring buffer: 44100 stereo samples（1秒分）
+- I2S BCLK: 1.4112 MHz at 44.1kHz / 16bit / stereo
+- I2S PIO: 64 cycles / stereo sample
+- Ring buffer: 44100 stereo samples
 - DMA buffer: 512 stereo samples x 2
-- Auto start threshold: 20%（8820 stereo samples）
-- DMA IRQ priority: 0xFF（Bluetooth 処理を優先）
+- A2DP signaling connection slots: 2（接続奪い取り用）
 
 ## ライセンス
 
-MIT License
+MIT License. 詳細は [LICENSE](LICENSE) を参照してください。
 
 ## 参考資料
 
 - [Raspberry Pi Pico SDK Documentation](https://www.raspberrypi.com/documentation/pico-sdk/)
 - [BTstack Documentation](https://bluekitchen-gmbh.com/btstack/)
-- [A2DP Profile Specification](https://www.bluetooth.com/specifications/specs/advanced-audio-distribution-profile-1-3/)
+- [PCM5102A データシート](https://www.ti.com/product/PCM5102A)

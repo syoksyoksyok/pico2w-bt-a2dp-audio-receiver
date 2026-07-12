@@ -5,11 +5,13 @@
 ## 前提構成
 
 - MCU: Raspberry Pi Pico 2 W
-- DAC: PCM5102A I2S DAC モジュール（`PCM5102A_jumper connection.png` と同じジャンパ設定済み）
+- DAC: PCM5102A I2S DAC モジュール（[PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) と同じジャンパ設定済み）
 - 出力先: ライン入力付きアンプ、アクティブスピーカー、またはヘッドホンアンプ
 - 音声信号: 44.1kHz / 16bit / stereo PCM を I2S で出力
 
 PCM5102A はスピーカーを直接駆動するアンプではありません。`OUTL` / `OUTR` はラインレベル出力として扱い、パッシブスピーカーを鳴らす場合は別途アンプを接続してください。
+
+**重要:** この配線ガイドは、[PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) と同じジャンパ設定になっている PCM5102A モジュールを前提にしています。ジャンパ未設定、または設定が異なるモジュールでは、この配線だけでは無音になる場合があります。
 
 ## I2S と I2C の違い
 
@@ -36,6 +38,8 @@ PCM5102A モジュール側の端子表記が `DATA`、`SD`、`D` のように�
 
 ### I2S 信号と電源
 
+以下の接続は、PCM5102A 側が [PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) と同じジャンパ設定済みであることを前提にしています。
+
 | Pico 2 W | PCM5102A | 用途 |
 |---|---|---|
 | `GPIO 26` | `DIN` | I2S データ |
@@ -46,7 +50,7 @@ PCM5102A モジュール側の端子表記が `DATA`、`SD`、`D` のように�
 
 ### PCM5102A のジャンパ設定
 
-この配線ガイドは、`PCM5102A_jumper connection.png` のように PCM5102A モジュール側の設定ジャンパが済んでいる前提です。Pico 2 W から `XSMT`、`FMT`、`FLT`、`DEMP` へ個別にジャンパ線を引く必要はありません。
+この配線ガイドでは、[PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) のように PCM5102A モジュール側の設定ジャンパが済んでいることを必須前提とします。Pico 2 W から `XSMT`、`FMT`、`FLT`、`DEMP` へ個別にジャンパ線を引く必要はありません。
 
 ジャンパ設定は以下の状態を前提にします。
 
@@ -130,7 +134,7 @@ AGND    ---------------------> Amplifier / line input GND
 
 - `GPIO 26`、`GPIO 27`、`GPIO 28` が PCM5102A の `DIN`、`BCK`、`LCK/LRCK` に対応しているか確認する。
 - Pico 2 W と PCM5102A の GND が共通か確認する。
-- PCM5102A のジャンパ設定が `PCM5102A_jumper connection.png` と同じになっているか確認する。
+- PCM5102A のジャンパ設定が [PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) と同じになっているか確認する。
 - `SCK` ピンが独立しているモジュールで音が出ない場合は、`SCK` を `GND` に接続して確認する。
 - PCM5102A の `OUTL` / `OUTR` がアンプやライン入力へ接続されているか確認する。
 - スマホ側、アンプ側、スピーカー側の音量を確認する。
