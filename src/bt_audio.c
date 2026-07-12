@@ -239,42 +239,70 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                         break;
                     }
 
+                    if (a2dp_cid != 0 && a2dp_cid != cid) {
+                        printf("A2DP takeover requested by %s (new CID: 0x%04x, old CID: 0x%04x)\n",
+                               bd_addr_to_str(address), cid, a2dp_cid);
+                        a2dp_sink_disconnect(a2dp_cid);
+                        is_connected = false;
+                    }
+
                     a2dp_cid = cid;
                     printf("A2DP connection established: %s (CID: 0x%04x)\n",
                            bd_addr_to_str(address), cid);
                     break;
 
                 case A2DP_SUBEVENT_SIGNALING_CONNECTION_RELEASED:
-                    printf("A2DP connection released\n");
-                    a2dp_cid = 0;
-                    is_connected = false;
+                    cid = a2dp_subevent_signaling_connection_released_get_a2dp_cid(packet);
+                    printf("A2DP connection released (CID: 0x%04x)\n", cid);
+                    if (cid == a2dp_cid) {
+                        a2dp_cid = 0;
+                        is_connected = false;
+                    }
                     break;
 
                 case A2DP_SUBEVENT_STREAM_ESTABLISHED:
                     a2dp_subevent_stream_established_get_bd_addr(packet, address);
+                    cid = a2dp_subevent_stream_established_get_a2dp_cid(packet);
                     status = a2dp_subevent_stream_established_get_status(packet);
 
                     if (status != ERROR_CODE_SUCCESS) {
-                        printf("Stream establishment failed, status 0x%02x\n", status);
-                        is_connected = false;
+                        printf("Stream establishment failed, status 0x%02x (CID: 0x%04x)\n", status, cid);
+                        if (cid == a2dp_cid) {
+                            is_connected = false;
+                        }
                         break;
                     }
 
-                    printf("Stream established: %s\n", bd_addr_to_str(address));
+                    if (cid != a2dp_cid) {
+                        printf("Ignoring stream from stale A2DP connection: %s (CID: 0x%04x)\n",
+                               bd_addr_to_str(address), cid);
+                        break;
+                    }
+
+                    printf("Stream established: %s (CID: 0x%04x)\n", bd_addr_to_str(address), cid);
                     is_connected = true;
                     break;
 
                 case A2DP_SUBEVENT_STREAM_STARTED:
-                    printf("Stream started - Audio playback begins\n");
+                    cid = a2dp_subevent_stream_started_get_a2dp_cid(packet);
+                    if (cid == a2dp_cid) {
+                        printf("Stream started - Audio playback begins (CID: 0x%04x)\n", cid);
+                    }
                     break;
 
                 case A2DP_SUBEVENT_STREAM_SUSPENDED:
-                    printf("Stream suspended - Audio playback paused\n");
+                    cid = a2dp_subevent_stream_suspended_get_a2dp_cid(packet);
+                    if (cid == a2dp_cid) {
+                        printf("Stream suspended - Audio playback paused (CID: 0x%04x)\n", cid);
+                    }
                     break;
 
                 case A2DP_SUBEVENT_STREAM_RELEASED:
-                    printf("Stream released\n");
-                    is_connected = false;
+                    cid = a2dp_subevent_stream_released_get_a2dp_cid(packet);
+                    printf("Stream released (CID: 0x%04x)\n", cid);
+                    if (cid == a2dp_cid) {
+                        is_connected = false;
+                    }
                     break;
 
                 case A2DP_SUBEVENT_SIGNALING_MEDIA_CODEC_SBC_CONFIGURATION: {
