@@ -46,6 +46,28 @@ PCM5102A を使う標準構成の部品表です。
 3. GNU Arm Embedded Toolchain
 4. Git
 
+## ファイル構成
+
+主なファイルとディレクトリの役割です。
+
+| パス | 役割 |
+|------|------|
+| `README.md` | プロジェクト概要、必要なもの、ビルド方法、使い方の説明 |
+| `WIRING.md` | Pico 2 W と PCM5102A I2S DAC の物理配線ガイド |
+| `CMakeLists.txt` | CMake のビルド設定。ソース、Pico SDK、出力ターゲットを定義 |
+| `.gitignore` | Git 管理対象外にするファイル設定 |
+| `boards/` | ボード定義用のヘッダ置き場 |
+| `boards/pico2_w.h` | Raspberry Pi Pico 2 W 向けのボード設定 |
+| `src/` | アプリケーション本体のソースコード |
+| `src/main.c` | メイン処理。初期化、Bluetooth A2DP、音声出力処理の起点 |
+| `src/config.h` | デバイス名、音声設定、I2S ピン番号などの設定値 |
+| `src/bt_audio.c` / `src/bt_audio.h` | Bluetooth A2DP 音声受信まわりの処理 |
+| `src/audio_out_i2s.c` / `src/audio_out_i2s.h` | PCM5102A へ出力する I2S 音声出力処理 |
+| `src/audio_out_pwm.c` / `src/audio_out_pwm.h` | PWM 音声出力用の実装。現在の標準配線では使用しない |
+| `src/i2s.pio` | PIO を使った I2S 出力プログラム |
+
+`build/`、`build-pico/`、`build-pico-uf2/` はローカルのビルド生成物です。中間ファイルや `.elf`、`.bin`、`.hex`、`.uf2` などが出力されます。
+
 ## セットアップ
 
 ### 1. Pico SDK の準備
