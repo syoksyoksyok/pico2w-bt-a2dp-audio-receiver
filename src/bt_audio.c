@@ -24,6 +24,8 @@ static bool is_connected = false;
 static bool media_streaming = false;
 static bd_addr_t active_address;
 static bool active_address_valid = false;
+static bd_addr_t takeover_address;
+static bool takeover_pending = false;
 static uint32_t current_sample_rate = AUDIO_SAMPLE_RATE;
 
 // A2DP SBC デコーダー
@@ -33,7 +35,7 @@ static btstack_sbc_mode_t sbc_mode = SBC_MODE_STANDARD;
 // SBC コーデック設定（A2DP Sink用）
 // これはスマホ側に「このデバイスが対応しているSBC設定」を伝える
 static uint8_t media_sbc_codec_capabilities[] = {
-    (AVDTP_SBC_44100 << 4) | AVDTP_SBC_STEREO,  // 44.1kHz, ステレオ
+    (AVDTP_SBC_44100 << 4) | AVDTP_SBC_STEREO | AVDTP_SBC_JOINT_STEREO,  // 44.1kHz, Stereo/Joint Stereo
     0xFF,  // すべてのブロック長、サブバンド、割り当て方式をサポート
     2, 35  // Min bitpool = 2, Max bitpool = 35（安定性優先）
 };
@@ -55,7 +57,9 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
 static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16_t size);
 static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context);
 static bool is_different_active_device(const bd_addr_t address);
+static void request_takeover(const bd_addr_t new_address, const char *reason);
 static void disconnect_active_for_takeover(const bd_addr_t new_address, const char *reason);
+static void try_start_pending_takeover(void);
 
 // ============================================================================
 // Bluetooth A2DP 初期化
@@ -181,6 +185,16 @@ static bool is_different_active_device(const bd_addr_t address) {
     return active_address_valid && memcmp(active_address, address, sizeof(bd_addr_t)) != 0;
 }
 
+static void request_takeover(const bd_addr_t new_address, const char *reason) {
+    if (!is_different_active_device(new_address)) {
+        return;
+    }
+
+    memcpy(takeover_address, new_address, sizeof(bd_addr_t));
+    takeover_pending = true;
+    disconnect_active_for_takeover(new_address, reason);
+}
+
 static void disconnect_active_for_takeover(const bd_addr_t new_address, const char *reason) {
     if (a2dp_cid == 0) {
         return;
@@ -193,6 +207,32 @@ static void disconnect_active_for_takeover(const bd_addr_t new_address, const ch
     printf("A2DP takeover: %s by %s (old CID: 0x%04x)\n",
            reason, bd_addr_to_str(new_address), old_cid);
     a2dp_sink_disconnect(old_cid);
+}
+
+static void try_start_pending_takeover(void) {
+    if (!takeover_pending || a2dp_cid != 0) {
+        return;
+    }
+
+    uint16_t cid = 0;
+    bd_addr_t address;
+    memcpy(address, takeover_address, sizeof(bd_addr_t));
+    takeover_pending = false;
+
+    uint8_t status = a2dp_sink_establish_stream(address, &cid);
+    if (status != ERROR_CODE_SUCCESS) {
+        printf("A2DP takeover: failed to start stream to %s, status 0x%02x\n",
+               bd_addr_to_str(address), status);
+        return;
+    }
+
+    a2dp_cid = cid;
+    memcpy(active_address, address, sizeof(bd_addr_t));
+    active_address_valid = true;
+    media_streaming = false;
+    is_connected = false;
+    printf("A2DP takeover: starting stream to %s (CID: 0x%04x)\n",
+           bd_addr_to_str(address), cid);
 }
 
 // ============================================================================
@@ -273,6 +313,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                         disconnect_active_for_takeover(address, "A2DP signaling connection");
                     }
 
+                    takeover_pending = false;
                     a2dp_cid = cid;
                     memcpy(active_address, address, sizeof(bd_addr_t));
                     active_address_valid = true;
@@ -290,6 +331,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                         media_streaming = false;
                         active_address_valid = false;
                     }
+                    try_start_pending_takeover();
                     break;
 
                 case A2DP_SUBEVENT_STREAM_ESTABLISHED:
@@ -316,7 +358,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     memcpy(active_address, address, sizeof(bd_addr_t));
                     active_address_valid = true;
                     is_connected = true;
-                    media_streaming = false;
+                    media_streaming = true;
                     break;
 
                 case A2DP_SUBEVENT_STREAM_STARTED:
@@ -399,7 +441,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
             bd_addr_t address;
             hci_event_connection_complete_get_bd_addr(packet, address);
             if (a2dp_cid != 0 && is_different_active_device(address)) {
-                disconnect_active_for_takeover(address, "new ACL connection");
+                request_takeover(address, "new ACL connection");
             }
             break;
         }
