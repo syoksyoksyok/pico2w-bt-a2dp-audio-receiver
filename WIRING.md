@@ -5,7 +5,7 @@
 ## 前提構成
 
 - MCU: Raspberry Pi Pico 2 W
-- DAC: PCM5102A I2S DAC モジュール
+- DAC: PCM5102A I2S DAC モジュール（`PCM5102A_jumper connection.png` と同じジャンパ設定済み）
 - 出力先: ライン入力付きアンプ、アクティブスピーカー、またはヘッドホンアンプ
 - 音声信号: 44.1kHz / 16bit / stereo PCM を I2S で出力
 
@@ -44,19 +44,21 @@ PCM5102A モジュール側の端子表記が `DATA`、`SD`、`D` のように�
 | `3V3` | `VCC` / `VIN` | DAC 電源 |
 | `GND` | `GND` | 共通 GND |
 
-### PCM5102A の設定ピン
+### PCM5102A のジャンパ設定
 
-PCM5102A モジュールによって端子名やジャンパ構成が少し違います。端子がある場合は、以下の接続を基本にしてください。
+この配線ガイドは、`PCM5102A_jumper connection.png` のように PCM5102A モジュール側の設定ジャンパが済んでいる前提です。Pico 2 W から `XSMT`、`FMT`、`FLT`、`DEMP` へ個別にジャンパ線を引く必要はありません。
 
-| PCM5102A | 接続先 | 目的 |
+ジャンパ設定は以下の状態を前提にします。
+
+| 設定 | 状態 | 目的 |
 |---|---|---|
-| `XSMT` | `3V3` | ミュート解除 |
-| `FMT` | `GND` | I2S フォーマット選択 |
-| `SCK` | `GND` | 3-wire I2S / 内部 PLL 動作 |
-| `FLT` | `GND` | ノーマルフィルター |
-| `DEMP` | `GND` | De-emphasis 無効 |
+| `XSMT` | `H` / High | ミュート解除 |
+| `FMT` | I2S | I2S フォーマット選択 |
+| `FLT` | Normal / Low | ノーマルフィルター |
+| `DEMP` | Off / Low | De-emphasis 無効 |
+| `SCK` | 未使用または `GND` | 3-wire I2S / 内部 PLL 動作 |
 
-特に `XSMT` と `SCK` は重要です。`XSMT` が未接続だとミュート状態になり、`SCK` が未処理だとモジュールによっては内部クロックが安定せず無音になります。
+`SCK` ピンが独立して出ているモジュールでは、音が出ない場合に `SCK` を `GND` へ接続してください。画像と同じジャンパ済みモジュールで正常に動作する場合は、追加配線は不要です。
 
 ### PCM5102A の音声出力
 
@@ -93,12 +95,6 @@ GPIO 28 ---------------------> LCK / LRCK / WS
 3V3     ---------------------> VCC / VIN
 GND     ---------------------> GND
 
-3V3     ---------------------> XSMT
-GND     ---------------------> FMT
-GND     ---------------------> SCK
-GND     ---------------------> FLT
-GND     ---------------------> DEMP
-
 OUTL    ---------------------> Amplifier / line input Left
 OUTR    ---------------------> Amplifier / line input Right
 AGND    ---------------------> Amplifier / line input GND
@@ -134,8 +130,8 @@ AGND    ---------------------> Amplifier / line input GND
 
 - `GPIO 26`、`GPIO 27`、`GPIO 28` が PCM5102A の `DIN`、`BCK`、`LCK/LRCK` に対応しているか確認する。
 - Pico 2 W と PCM5102A の GND が共通か確認する。
-- PCM5102A の `XSMT` が `3V3` に接続されているか確認する。
-- PCM5102A の `FMT` と `SCK` が `GND` に接続されているか確認する。
+- PCM5102A のジャンパ設定が `PCM5102A_jumper connection.png` と同じになっているか確認する。
+- `SCK` ピンが独立しているモジュールで音が出ない場合は、`SCK` を `GND` に接続して確認する。
 - PCM5102A の `OUTL` / `OUTR` がアンプやライン入力へ接続されているか確認する。
 - スマホ側、アンプ側、スピーカー側の音量を確認する。
 - USB シリアルログで Bluetooth 接続と `Underruns` / `Overruns` を確認する。
