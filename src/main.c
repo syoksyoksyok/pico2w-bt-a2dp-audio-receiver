@@ -44,23 +44,26 @@ static void pcm_data_handler(const int16_t *pcm_data, uint32_t num_samples,
     if (written < num_samples) {
         uint32_t dropped = num_samples - written;
         pcm_dropped += dropped;
-#ifdef ENABLE_DEBUG_LOG
+#if ENABLE_DEBUG_LOG
         printf("WARNING: Audio buffer full, dropped %lu samples (total dropped: %lu)\n",
                dropped, pcm_dropped);
 #endif
     }
 
+#if ENABLE_DEBUG_LOG
     // N回ごとに統計を表示（頻度はconfig.hで設定）
     if (pcm_total_count % STATS_LOG_FREQUENCY == 0) {
         printf("[PCM Stats] Callbacks: %lu, Total samples: %lu, Dropped: %lu\n",
                pcm_total_count, pcm_total_samples, pcm_dropped);
     }
+#endif
 }
 
 // ============================================================================
 // バッファ状態のログ出力
 // ============================================================================
 
+#if ENABLE_DEBUG_LOG
 static void log_buffer_status(void) {
     absolute_time_t now = get_absolute_time();
     int64_t elapsed_ms = absolute_time_diff_us(last_status_log_time, now) / 1000;
@@ -87,6 +90,7 @@ static void log_buffer_status(void) {
         printf("  WARNING: Buffer level high!\n");
     }
 }
+#endif
 
 // ============================================================================
 // メイン関数
@@ -175,7 +179,7 @@ int main(void) {
         }
 
         // バッファ状態のログ出力（定期的）
-#ifdef ENABLE_DEBUG_LOG
+#if ENABLE_DEBUG_LOG
         if (is_connected) {
             log_buffer_status();
         }

@@ -32,7 +32,7 @@ static btstack_sbc_mode_t sbc_mode = SBC_MODE_STANDARD;
 static uint8_t media_sbc_codec_capabilities[] = {
     (AVDTP_SBC_44100 << 4) | AVDTP_SBC_STEREO,  // 44.1kHz, ステレオ
     0xFF,  // すべてのブロック長、サブバンド、割り当て方式をサポート
-    2, 53  // Min bitpool = 2, Max bitpool = 53
+    2, 35  // Min bitpool = 2, Max bitpool = 35（安定性優先）
 };
 
 // SBC コーデック実際の設定（ネゴシエーション後に格納される）
@@ -177,10 +177,12 @@ static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, in
     static uint32_t pcm_callback_count = 0;
     pcm_callback_count++;
 
+#if ENABLE_DEBUG_LOG
     // 最初の数回だけログ出力（デバッグ用）
     if (pcm_callback_count <= INITIAL_PCM_LOG_COUNT) {
         printf("[PCM] Received: %d samples, %d ch, %d Hz\n", num_samples, num_channels, sample_rate);
     }
+#endif
 
     // サンプルレートの更新
     if (current_sample_rate != (uint32_t)sample_rate) {
@@ -377,6 +379,7 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     media_total_bytes += (size > SBC_MEDIA_PACKET_HEADER_OFFSET) ?
                          (size - SBC_MEDIA_PACKET_HEADER_OFFSET) : 0;
 
+#if ENABLE_DEBUG_LOG
     uint16_t media_data_size = (size > SBC_MEDIA_PACKET_HEADER_OFFSET) ?
                                (size - SBC_MEDIA_PACKET_HEADER_OFFSET) : 0;
 
@@ -392,6 +395,7 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
         printf("[MEDIA Stats] Packets: %lu, Total bytes: %lu, Avg size: %lu\n",
                media_packet_count, media_total_bytes, media_total_bytes / media_packet_count);
     }
+#endif
 
     // メディアパケットサイズの検証
     if (size < SBC_MEDIA_PACKET_HEADER_OFFSET) {

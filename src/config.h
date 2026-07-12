@@ -54,6 +54,10 @@
 // DMA バッファサイズ（サンプル数）
 #define DMA_BUFFER_SIZE      512
 
+// 再生開始しきい値
+// 大きいほど開始遅延は増えるが、Bluetooth受信の揺らぎに強くなる
+#define AUTO_START_THRESHOLD (AUDIO_BUFFER_SIZE / 3)
+
 // バッファアンダーラン/オーバーラン検出の閾値
 #define BUFFER_LOW_THRESHOLD    (AUDIO_BUFFER_SIZE / 4)
 #define BUFFER_HIGH_THRESHOLD   (AUDIO_BUFFER_SIZE * 3 / 4)
@@ -63,19 +67,19 @@
 // ============================================================================
 
 // デバッグログを有効化
-#define ENABLE_DEBUG_LOG     1
+#define ENABLE_DEBUG_LOG     0
 
 // バッファ状態のログ出力間隔（ミリ秒）
-#define BUFFER_STATUS_LOG_INTERVAL_MS  5000
+#define BUFFER_STATUS_LOG_INTERVAL_MS  10000
 
 // 統計情報のログ出力頻度（N回ごと）
-#define STATS_LOG_FREQUENCY    100
+#define STATS_LOG_FREQUENCY    1000
 
 // PCMデータ受信の初期ログ出力回数
-#define INITIAL_PCM_LOG_COUNT  5
+#define INITIAL_PCM_LOG_COUNT  1
 
 // メディアパケット受信の初期ログ出力回数
-#define INITIAL_MEDIA_LOG_COUNT  3
+#define INITIAL_MEDIA_LOG_COUNT  1
 
 // ============================================================================
 // システム設定
@@ -104,8 +108,8 @@
 // ============================================================================
 
 // PIO クロックサイクル数（1ステレオペアあたり）
-// 左チャンネル33サイクル + 右チャンネル33サイクル = 66サイクル
-#define PIO_CYCLES_PER_STEREO_SAMPLE  66
+// 左チャンネル32サイクル + 右チャンネル32サイクル = 64サイクル
+#define PIO_CYCLES_PER_STEREO_SAMPLE  64
 
 // ============================================================================
 // オーディオボリューム設定

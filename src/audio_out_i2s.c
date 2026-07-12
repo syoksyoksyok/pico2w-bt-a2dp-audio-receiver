@@ -148,15 +148,17 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
 
     static uint32_t write_call_count = 0;
     static uint32_t total_written = 0;
+#if ENABLE_DEBUG_LOG
     uint32_t save = save_and_disable_interrupts();
     uint32_t buffered_before = buffered_samples;
     restore_interrupts(save);
+#endif
 
     write_call_count++;
 
     // num_samplesはステレオペア数として扱う
     for (uint32_t i = 0; i < num_samples; i++) {
-        save = save_and_disable_interrupts();
+        uint32_t save = save_and_disable_interrupts();
         bool buffer_full = buffered_samples >= ring_buffer_capacity();
         restore_interrupts(save);
 
@@ -182,9 +184,7 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
 
     // 自動開始: バッファがある程度埋まったらDMAを開始
     // buffered_samplesはステレオペア数なので、AUDIO_BUFFER_SIZEと比較
-    // 20%でスタート（バッファに余裕を持たせてUnderrunsを防止）
-    #define AUTO_START_THRESHOLD (AUDIO_BUFFER_SIZE / 5)  // 20%
-    save = save_and_disable_interrupts();
+    uint32_t save = save_and_disable_interrupts();
     uint32_t buffered_after = buffered_samples;
     restore_interrupts(save);
 
@@ -195,11 +195,13 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
         audio_out_i2s_start();
     }
 
+#if ENABLE_DEBUG_LOG
     // N回ごとにログ出力（頻度はconfig.hで設定）
     if (write_call_count % STATS_LOG_FREQUENCY == 0) {
         printf("[I2S Write] Calls: %lu, Total written: %lu, Current buffer: %lu->%lu\n",
                write_call_count, total_written, buffered_before, buffered_after);
     }
+#endif
 
     return samples_written;
 }
