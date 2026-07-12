@@ -29,13 +29,13 @@
 // ============================================================================
 
 #define HCI_ACL_PAYLOAD_SIZE 1021
-#define MAX_NR_AVDTP_CONNECTIONS 1
+#define MAX_NR_AVDTP_CONNECTIONS 2
 #define MAX_NR_AVDTP_STREAM_ENDPOINTS 1
 #define MAX_NR_AVRCP_CONNECTIONS 1
-#define MAX_NR_BTSTACK_LINK_KEY_DB_MEMORY_ENTRIES 2
+#define MAX_NR_BTSTACK_LINK_KEY_DB_MEMORY_ENTRIES 4
 #define MAX_NR_GATT_CLIENTS 0
-#define MAX_NR_HCI_CONNECTIONS 1
-#define MAX_NR_L2CAP_CHANNELS 4
+#define MAX_NR_HCI_CONNECTIONS 2
+#define MAX_NR_L2CAP_CHANNELS 6
 #define MAX_NR_L2CAP_SERVICES 3
 #define MAX_NR_RFCOMM_CHANNELS 0
 #define MAX_NR_RFCOMM_MULTIPLEXERS 0
@@ -46,7 +46,7 @@
 #define MAX_NR_LE_DEVICE_DB_ENTRIES 0
 
 // Link Key database for pairing
-#define NVM_NUM_LINK_KEYS 2
+#define NVM_NUM_LINK_KEYS 4
 
 // BLE settings (minimal, required by pico_btstack_ble library)
 #define MAX_ATT_DB_SIZE 512

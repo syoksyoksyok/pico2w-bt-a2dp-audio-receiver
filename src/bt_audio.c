@@ -21,6 +21,9 @@
 
 static pcm_data_callback_t pcm_callback = NULL;
 static bool is_connected = false;
+static bool media_streaming = false;
+static bd_addr_t active_address;
+static bool active_address_valid = false;
 static uint32_t current_sample_rate = AUDIO_SAMPLE_RATE;
 
 // A2DP SBC デコーダー
@@ -51,6 +54,8 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
 static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16_t size);
 static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context);
+static bool is_different_active_device(const bd_addr_t address);
+static void disconnect_active_for_takeover(const bd_addr_t new_address, const char *reason);
 
 // ============================================================================
 // Bluetooth A2DP 初期化
@@ -111,6 +116,7 @@ bool bt_audio_init(void) {
 
     // GAP（Generic Access Profile）の設定
     gap_discoverable_control(1);
+    gap_connectable_control(1);
     gap_set_class_of_device(BT_DEVICE_CLASS);
     gap_set_local_name(BT_DEVICE_NAME);
 
@@ -165,6 +171,28 @@ uint32_t bt_audio_get_sample_rate(void) {
 
 void bt_audio_set_pcm_callback(pcm_data_callback_t callback) {
     pcm_callback = callback;
+}
+
+// ============================================================================
+// 接続奪い取りサポート
+// ============================================================================
+
+static bool is_different_active_device(const bd_addr_t address) {
+    return active_address_valid && memcmp(active_address, address, sizeof(bd_addr_t)) != 0;
+}
+
+static void disconnect_active_for_takeover(const bd_addr_t new_address, const char *reason) {
+    if (a2dp_cid == 0) {
+        return;
+    }
+
+    uint16_t old_cid = a2dp_cid;
+    media_streaming = false;
+    is_connected = false;
+
+    printf("A2DP takeover: %s by %s (old CID: 0x%04x)\n",
+           reason, bd_addr_to_str(new_address), old_cid);
+    a2dp_sink_disconnect(old_cid);
 }
 
 // ============================================================================
@@ -242,13 +270,13 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     }
 
                     if (a2dp_cid != 0 && a2dp_cid != cid) {
-                        printf("A2DP takeover requested by %s (new CID: 0x%04x, old CID: 0x%04x)\n",
-                               bd_addr_to_str(address), cid, a2dp_cid);
-                        a2dp_sink_disconnect(a2dp_cid);
-                        is_connected = false;
+                        disconnect_active_for_takeover(address, "A2DP signaling connection");
                     }
 
                     a2dp_cid = cid;
+                    memcpy(active_address, address, sizeof(bd_addr_t));
+                    active_address_valid = true;
+                    media_streaming = false;
                     printf("A2DP connection established: %s (CID: 0x%04x)\n",
                            bd_addr_to_str(address), cid);
                     break;
@@ -259,6 +287,8 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     if (cid == a2dp_cid) {
                         a2dp_cid = 0;
                         is_connected = false;
+                        media_streaming = false;
+                        active_address_valid = false;
                     }
                     break;
 
@@ -271,6 +301,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                         printf("Stream establishment failed, status 0x%02x (CID: 0x%04x)\n", status, cid);
                         if (cid == a2dp_cid) {
                             is_connected = false;
+                            media_streaming = false;
                         }
                         break;
                     }
@@ -282,12 +313,16 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     }
 
                     printf("Stream established: %s (CID: 0x%04x)\n", bd_addr_to_str(address), cid);
+                    memcpy(active_address, address, sizeof(bd_addr_t));
+                    active_address_valid = true;
                     is_connected = true;
+                    media_streaming = false;
                     break;
 
                 case A2DP_SUBEVENT_STREAM_STARTED:
                     cid = a2dp_subevent_stream_started_get_a2dp_cid(packet);
                     if (cid == a2dp_cid) {
+                        media_streaming = true;
                         printf("Stream started - Audio playback begins (CID: 0x%04x)\n", cid);
                     }
                     break;
@@ -295,6 +330,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                 case A2DP_SUBEVENT_STREAM_SUSPENDED:
                     cid = a2dp_subevent_stream_suspended_get_a2dp_cid(packet);
                     if (cid == a2dp_cid) {
+                        media_streaming = false;
                         printf("Stream suspended - Audio playback paused (CID: 0x%04x)\n", cid);
                     }
                     break;
@@ -304,6 +340,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     printf("Stream released (CID: 0x%04x)\n", cid);
                     if (cid == a2dp_cid) {
                         is_connected = false;
+                        media_streaming = false;
                     }
                     break;
 
@@ -351,6 +388,22 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
     if (packet_type != HCI_EVENT_PACKET) return;
 
     switch (hci_event_packet_get_type(packet)) {
+        case HCI_EVENT_CONNECTION_COMPLETE: {
+            if (hci_event_connection_complete_get_status(packet) != ERROR_CODE_SUCCESS) {
+                break;
+            }
+            if (hci_event_connection_complete_get_link_type(packet) != HCI_LINK_TYPE_ACL) {
+                break;
+            }
+
+            bd_addr_t address;
+            hci_event_connection_complete_get_bd_addr(packet, address);
+            if (a2dp_cid != 0 && is_different_active_device(address)) {
+                disconnect_active_for_takeover(address, "new ACL connection");
+            }
+            break;
+        }
+
         case HCI_EVENT_PIN_CODE_REQUEST: {
             // PIN コードリクエスト（必要に応じて処理）
             printf("PIN code request - using default: 0000\n");
@@ -371,6 +424,10 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
 static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16_t size) {
     UNUSED(seid);
+
+    if (!media_streaming) {
+        return;
+    }
 
     static uint32_t media_packet_count = 0;
     static uint32_t media_total_bytes = 0;
