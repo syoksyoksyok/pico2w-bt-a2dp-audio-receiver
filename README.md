@@ -103,8 +103,8 @@ screen /dev/ttyACM0 115200
 起動後、接続できる状態になると以下のような案内が出ます。
 
 ```text
-Ready! Waiting for Bluetooth connection...
 Device name: Pico2W Audio Receiver
+Ready! Waiting for Bluetooth connection...
 ```
 
 ## 設定変更
@@ -120,6 +120,7 @@ Device name: Pico2W Audio Receiver
 | `I2S_LRCLK_PIN` | `28` | I2S LRCLK |
 | `AUDIO_BUFFER_SIZE` | 1 秒分 | 受信揺らぎ吸収用リングバッファ |
 | `AUTO_START_THRESHOLD` | 約 33% | 再生開始までに貯めるバッファ量 |
+| `SOFTWARE_VOLUME_PERCENT` | `85` | クリッピング防止用のソフトウェア音量 |
 
 現在の A2DP / I2S 設定は 44.1kHz 前提です。48kHz へ変更する場合は、`config.h` だけでなく `src/bt_audio.c` の SBC capability と I2S 関連計算も合わせて変更してください。
 
@@ -156,6 +157,7 @@ Device name: Pico2W Audio Receiver
 | `src/main.c` | メインループと初期化 |
 | `src/bt_audio.c` | Bluetooth A2DP Sink 処理 |
 | `src/audio_out_i2s.c` | I2S / DMA 音声出力 |
+| `src/audio_out_pwm.c` / `src/audio_out_pwm.h` | 旧 PWM 出力実装（現在のビルド対象外） |
 | `src/config.h` | ユーザー設定 |
 | `src/i2s.pio` | I2S 出力用 PIO プログラム |
 | `CMakeLists.txt` | ビルド設定 |

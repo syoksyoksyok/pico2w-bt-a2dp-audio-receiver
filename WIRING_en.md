@@ -60,9 +60,9 @@ The assumed settings are:
 | `FMT` | I2S | Select I2S format |
 | `FLT` | Normal / Low | Normal filter |
 | `DEMP` | Off / Low | Disable de-emphasis |
-| `SCK` | Unused or `GND` | 3-wire I2S / internal PLL operation |
+| `SCK` | `GND` | 3-wire I2S / internal PLL operation |
 
-If your module exposes an independent `SCK` pin and there is no sound, try connecting `SCK` to `GND`. If the module works with the same jumper configuration as the image, no additional wiring is needed.
+If your module exposes an independent `SCK` pin, connect `SCK` to `GND`. If the module already ties `SCK` to GND through the same jumper configuration as the image, no additional wiring is needed.
 
 ### Audio Output
 
@@ -135,10 +135,10 @@ This example uses:
 - Confirm that `GPIO 26`, `GPIO 27`, and `GPIO 28` are connected to `DIN`, `BCK`, and `LCK/LRCK`.
 - Confirm that Pico 2 W and PCM5102A share a common GND.
 - Confirm that the PCM5102A jumper settings match [PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png).
-- If your module exposes an independent `SCK` pin and there is no sound, try connecting `SCK` to `GND`.
+- If your module exposes an independent `SCK` pin, confirm that `SCK` is connected to `GND`.
 - Confirm that `OUTL` / `OUTR` are connected to an amplifier or line input.
 - Check the volume on the phone, amplifier, and speaker.
-- Check USB serial logs for Bluetooth connection state and `Underruns` / `Overruns`.
+- Check USB serial logs for the Bluetooth connection state. To see periodic `Underruns` / `Overruns` output, set `ENABLE_DEBUG_LOG` to `1` in `src/config.h`.
 
 ## Noise Checklist
 

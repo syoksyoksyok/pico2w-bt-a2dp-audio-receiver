@@ -60,9 +60,9 @@ PCM5102A モジュール側の端子表記が `DATA`、`SD`、`D` のように�
 | `FMT` | I2S | I2S フォーマット選択 |
 | `FLT` | Normal / Low | ノーマルフィルター |
 | `DEMP` | Off / Low | De-emphasis 無効 |
-| `SCK` | 未使用または `GND` | 3-wire I2S / 内部 PLL 動作 |
+| `SCK` | `GND` | 3-wire I2S / 内部 PLL 動作 |
 
-`SCK` ピンが独立して出ているモジュールでは、音が出ない場合に `SCK` を `GND` へ接続してください。画像と同じジャンパ済みモジュールで正常に動作する場合は、追加配線は不要です。
+`SCK` ピンが独立して出ているモジュールでは、`SCK` を `GND` へ接続してください。画像と同じジャンパ済みモジュールで `SCK` が既に GND 側へ設定されている場合は、追加配線は不要です。
 
 ### PCM5102A の音声出力
 
@@ -135,10 +135,10 @@ AGND    ---------------------> Amplifier / line input GND
 - `GPIO 26`、`GPIO 27`、`GPIO 28` が PCM5102A の `DIN`、`BCK`、`LCK/LRCK` に対応しているか確認する。
 - Pico 2 W と PCM5102A の GND が共通か確認する。
 - PCM5102A のジャンパ設定が [PCM5102A_jumper connection.png](PCM5102A_jumper%20connection.png) と同じになっているか確認する。
-- `SCK` ピンが独立しているモジュールで音が出ない場合は、`SCK` を `GND` に接続して確認する。
+- `SCK` ピンが独立しているモジュールでは、`SCK` が `GND` に接続されているか確認する。
 - PCM5102A の `OUTL` / `OUTR` がアンプやライン入力へ接続されているか確認する。
 - スマホ側、アンプ側、スピーカー側の音量を確認する。
-- USB シリアルログで Bluetooth 接続と `Underruns` / `Overruns` を確認する。
+- USB シリアルログで Bluetooth 接続を確認する。`Underruns` / `Overruns` の定期表示を確認する場合は、`src/config.h` の `ENABLE_DEBUG_LOG` を `1` にする。
 
 ## ノイズが多い場合の確認
 
