@@ -56,6 +56,7 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
 static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16_t size);
 static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context);
+static bool get_sbc_payload(uint8_t *packet, uint16_t size, uint8_t **payload, uint16_t *payload_size, uint8_t *num_frames);
 static bool is_different_active_device(const bd_addr_t address);
 static void request_takeover(const bd_addr_t new_address, const char *reason);
 static void disconnect_active_for_takeover(const bd_addr_t new_address, const char *reason);
@@ -461,6 +462,78 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 }
 
 // ============================================================================
+// A2DP RTP/SBC ヘッダー解析
+// ============================================================================
+
+static bool get_sbc_payload(uint8_t *packet, uint16_t size, uint8_t **payload, uint16_t *payload_size, uint8_t *num_frames) {
+    if (size < 13) {
+        printf("[MEDIA] ERROR: Packet too small (%u bytes)\n", size);
+        return false;
+    }
+
+    uint8_t rtp_version = packet[0] >> 6;
+    if (rtp_version != 2) {
+        printf("[MEDIA] ERROR: Unsupported RTP version %u\n", rtp_version);
+        return false;
+    }
+
+    bool has_padding = (packet[0] & 0x20) != 0;
+    bool has_extension = (packet[0] & 0x10) != 0;
+    uint8_t csrc_count = packet[0] & 0x0f;
+
+    uint32_t pos = 12u + ((uint32_t)csrc_count * 4u);
+    if (pos > size) {
+        printf("[MEDIA] ERROR: Invalid RTP CSRC count %u for packet size %u\n", csrc_count, size);
+        return false;
+    }
+
+    if (has_extension) {
+        if ((uint32_t)size - pos < 4u) {
+            printf("[MEDIA] ERROR: Truncated RTP extension header\n");
+            return false;
+        }
+        uint16_t extension_words = big_endian_read_16(packet, pos + 2u);
+        pos += 4u + ((uint32_t)extension_words * 4u);
+        if (pos > size) {
+            printf("[MEDIA] ERROR: RTP extension exceeds packet size\n");
+            return false;
+        }
+    }
+
+    uint32_t end = size;
+    if (has_padding) {
+        uint8_t padding_len = packet[size - 1u];
+        if (padding_len == 0 || padding_len > end - pos) {
+            printf("[MEDIA] ERROR: Invalid RTP padding length %u\n", padding_len);
+            return false;
+        }
+        end -= padding_len;
+    }
+
+    if (end - pos < 1u) {
+        printf("[MEDIA] ERROR: Missing SBC codec header\n");
+        return false;
+    }
+
+    uint8_t sbc_header = packet[pos++];
+    *num_frames = sbc_header & 0x0f;
+
+    if (*num_frames == 0) {
+        printf("[MEDIA] ERROR: SBC packet reports zero frames\n");
+        return false;
+    }
+
+    if (pos >= end) {
+        printf("[MEDIA] ERROR: Missing SBC frame data\n");
+        return false;
+    }
+
+    *payload = packet + pos;
+    *payload_size = (uint16_t)(end - pos);
+    return true;
+}
+
+// ============================================================================
 // A2DP Sink メディアパケットハンドラー（音声データを受信・デコード）
 // ============================================================================
 
@@ -474,19 +547,22 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     static uint32_t media_packet_count = 0;
     static uint32_t media_total_bytes = 0;
 
+    uint8_t *sbc_payload = NULL;
+    uint16_t sbc_payload_size = 0;
+    uint8_t sbc_num_frames = 0;
+
+    if (!get_sbc_payload(packet, size, &sbc_payload, &sbc_payload_size, &sbc_num_frames)) {
+        return;
+    }
+
     media_packet_count++;
-    media_total_bytes += (size > SBC_MEDIA_PACKET_HEADER_OFFSET) ?
-                         (size - SBC_MEDIA_PACKET_HEADER_OFFSET) : 0;
+    media_total_bytes += sbc_payload_size;
 
 #if ENABLE_DEBUG_LOG
-    uint16_t media_data_size = (size > SBC_MEDIA_PACKET_HEADER_OFFSET) ?
-                               (size - SBC_MEDIA_PACKET_HEADER_OFFSET) : 0;
-
     // 最初の数回だけログ出力（デバッグ用）
     if (media_packet_count <= INITIAL_MEDIA_LOG_COUNT) {
-        printf("[MEDIA] Packet #%lu: size=%u, offset=%d, data_size=%u\n",
-               media_packet_count, size, SBC_MEDIA_PACKET_HEADER_OFFSET,
-               media_data_size);
+        printf("[MEDIA] Packet #%lu: size=%u, frames=%u, sbc_payload=%u\n",
+               media_packet_count, size, sbc_num_frames, sbc_payload_size);
     }
 
     // N回ごとに統計を表示（頻度はconfig.hで設定）
@@ -496,15 +572,6 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
     }
 #endif
 
-    // メディアパケットサイズの検証
-    if (size < SBC_MEDIA_PACKET_HEADER_OFFSET) {
-        printf("[MEDIA] ERROR: Packet too small (%u bytes, expected >= %d)\n",
-               size, SBC_MEDIA_PACKET_HEADER_OFFSET);
-        return;
-    }
-
-    // SBCデコーダーにデータを渡す（ヘッダー13バイトをスキップ）
-    btstack_sbc_decoder_process_data(&sbc_decoder_state, 0,
-                                      packet + SBC_MEDIA_PACKET_HEADER_OFFSET,
-                                      size - SBC_MEDIA_PACKET_HEADER_OFFSET);
+    // SBCデコーダーにSBCフレームデータだけを渡す
+    btstack_sbc_decoder_process_data(&sbc_decoder_state, 0, sbc_payload, sbc_payload_size);
 }

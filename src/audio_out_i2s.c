@@ -50,11 +50,11 @@ static int32_t dma_buffer[2][I2S_DMA_BUFFER_SIZE];  // 32ビット（左右16ビ
 static volatile uint8_t current_dma_buffer = 0;
 
 // 統計情報
-static uint32_t underrun_count = 0;
-static uint32_t overrun_count = 0;
+static volatile uint32_t underrun_count = 0;
+static volatile uint32_t overrun_count = 0;
 
 // 状態
-static bool is_running = false;
+static volatile bool is_running = false;
 
 // ============================================================================
 // 内部関数（前方宣言）
@@ -62,9 +62,47 @@ static bool is_running = false;
 
 static void dma_handler(void);
 static void fill_dma_buffer(int32_t *buffer, uint32_t num_samples);
+static bool ring_buffer_push_stereo(int16_t left, int16_t right);
+static bool ring_buffer_pop_stereo(int16_t *left, int16_t *right);
 
 static inline uint32_t ring_buffer_capacity(void) {
     return I2S_BUFFER_SIZE / 2;
+}
+
+static bool ring_buffer_push_stereo(int16_t left, int16_t right) {
+    uint32_t save = save_and_disable_interrupts();
+
+    if (buffered_samples >= ring_buffer_capacity()) {
+        overrun_count++;
+        restore_interrupts(save);
+        return false;
+    }
+
+    ring_buffer[write_pos * 2u] = left;
+    ring_buffer[write_pos * 2u + 1u] = right;
+    write_pos = (write_pos + 1u) % ring_buffer_capacity();
+    buffered_samples++;
+
+    restore_interrupts(save);
+    return true;
+}
+
+static bool ring_buffer_pop_stereo(int16_t *left, int16_t *right) {
+    uint32_t save = save_and_disable_interrupts();
+
+    if (buffered_samples == 0) {
+        underrun_count++;
+        restore_interrupts(save);
+        return false;
+    }
+
+    *left = ring_buffer[read_pos * 2u];
+    *right = ring_buffer[read_pos * 2u + 1u];
+    read_pos = (read_pos + 1u) % ring_buffer_capacity();
+    buffered_samples--;
+
+    restore_interrupts(save);
+    return true;
 }
 
 // ============================================================================
@@ -158,25 +196,9 @@ uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
 
     // num_samplesはステレオペア数として扱う
     for (uint32_t i = 0; i < num_samples; i++) {
-        uint32_t save = save_and_disable_interrupts();
-        bool buffer_full = buffered_samples >= ring_buffer_capacity();
-        restore_interrupts(save);
-
-        if (buffer_full) {
-            // バッファがいっぱい（オーバーラン）
-            overrun_count++;
+        if (!ring_buffer_push_stereo(pcm_data[i * 2u], pcm_data[i * 2u + 1u])) {
             break;
         }
-
-        // ステレオデータをリングバッファに書き込み
-        ring_buffer[write_pos * 2] = pcm_data[i * 2];       // 左チャンネル
-        ring_buffer[write_pos * 2 + 1] = pcm_data[i * 2 + 1]; // 右チャンネル
-
-        save = save_and_disable_interrupts();
-        write_pos = (write_pos + 1) % ring_buffer_capacity();
-        buffered_samples++;
-        restore_interrupts(save);
-
         samples_written++;
     }
 
@@ -282,6 +304,10 @@ void audio_out_i2s_stop(void) {
 // ============================================================================
 
 void audio_out_i2s_clear_buffer(void) {
+    if (is_running) {
+        audio_out_i2s_stop();
+    }
+
     uint32_t save = save_and_disable_interrupts();
     write_pos = 0;
     read_pos = 0;
@@ -300,8 +326,13 @@ void audio_out_i2s_clear_buffer(void) {
 // ============================================================================
 
 void audio_out_i2s_get_stats(uint32_t *underruns, uint32_t *overruns) {
-    if (underruns) *underruns = underrun_count;
-    if (overruns) *overruns = overrun_count;
+    uint32_t save = save_and_disable_interrupts();
+    uint32_t underrun_snapshot = underrun_count;
+    uint32_t overrun_snapshot = overrun_count;
+    restore_interrupts(save);
+
+    if (underruns) *underruns = underrun_snapshot;
+    if (overruns) *overruns = overrun_snapshot;
 }
 
 // ============================================================================
@@ -310,20 +341,14 @@ void audio_out_i2s_get_stats(uint32_t *underruns, uint32_t *overruns) {
 
 static void fill_dma_buffer(int32_t *buffer, uint32_t num_samples) {
     for (uint32_t i = 0; i < num_samples; i++) {
-        if (buffered_samples > 0) {
-            // リングバッファからステレオデータを読み出す
-            int16_t left = ring_buffer[read_pos * 2];
-            int16_t right = ring_buffer[read_pos * 2 + 1];
-
+        int16_t left;
+        int16_t right;
+        if (ring_buffer_pop_stereo(&left, &right)) {
             // 32ビットワードにパック（上位16ビット=左、下位16ビット=右）
             buffer[i] = ((uint32_t)(uint16_t)left << 16) | (uint16_t)right;
-
-            read_pos = (read_pos + 1) % ring_buffer_capacity();
-            buffered_samples--;
         } else {
             // データがない場合は無音を出力（アンダーラン）
             buffer[i] = 0;
-            underrun_count++;
         }
     }
 }
