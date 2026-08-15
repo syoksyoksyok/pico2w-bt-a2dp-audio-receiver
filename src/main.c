@@ -31,32 +31,28 @@ static void pcm_data_handler(const int16_t *pcm_data, uint32_t num_samples,
     (void)channels;      // I2Sはステレオ固定
     (void)sample_rate;   // サンプルレートは設定済み
 
-    static uint32_t pcm_total_count = 0;
-    static uint32_t pcm_total_samples = 0;
-    static uint32_t pcm_dropped = 0;
-
-    pcm_total_count++;
-    pcm_total_samples += num_samples;
-
     // I2S 出力にPCMデータを書き込み
-    uint32_t written = audio_out_i2s_write(pcm_data, num_samples);
+    (void)audio_out_i2s_write(pcm_data, num_samples);
+}
 
-    if (written < num_samples) {
-        uint32_t dropped = num_samples - written;
-        pcm_dropped += dropped;
-#if ENABLE_DEBUG_LOG
-        printf("WARNING: Audio buffer full, dropped %lu samples (total dropped: %lu)\n",
-               dropped, pcm_dropped);
-#endif
-    }
+// ============================================================================
+// Bluetooth状態変化時のオーディオバッファ制御
+// ============================================================================
 
-#if ENABLE_DEBUG_LOG
-    // N回ごとに統計を表示（頻度はconfig.hで設定）
-    if (pcm_total_count % STATS_LOG_FREQUENCY == 0) {
-        printf("[PCM Stats] Callbacks: %lu, Total samples: %lu, Dropped: %lu\n",
-               pcm_total_count, pcm_total_samples, pcm_dropped);
+static void bt_control_handler(bt_audio_control_event_t event, uint16_t cid) {
+    switch (event) {
+        case BT_AUDIO_CONTROL_STREAM_STOPPED:
+        case BT_AUDIO_CONTROL_STREAM_RELEASED:
+        case BT_AUDIO_CONTROL_CONNECTION_RELEASED:
+        case BT_AUDIO_CONTROL_TAKEOVER_STARTED:
+        case BT_AUDIO_CONTROL_STREAM_STARTING:
+            printf("[I2S] Reset audio buffers for BT event %d (CID: 0x%04x)\n", event, cid);
+            audio_out_i2s_stop();
+            audio_out_i2s_clear_buffer();
+            break;
+        default:
+            break;
     }
-#endif
 }
 
 // ============================================================================
@@ -75,18 +71,21 @@ static void log_buffer_status(void) {
     last_status_log_time = now;
 
     // I2Sバッファ状態を取得して表示
-    uint32_t buffered = audio_out_i2s_get_buffered_samples();
-    uint32_t free_space = audio_out_i2s_get_free_space();
-    uint32_t underruns, overruns;
-    audio_out_i2s_get_stats(&underruns, &overruns);
+    audio_out_i2s_debug_stats_t stats;
+    audio_out_i2s_get_debug_stats(&stats);
 
-    printf("[I2S] Buffer: %lu/%u samples | Free: %lu | Underruns: %lu | Overruns: %lu\n",
-           buffered, AUDIO_BUFFER_SIZE, free_space, underruns, overruns);
+    printf("[I2S] Buffer: %lu/%u samples | Free: %lu | Min: %lu | Max: %lu | Underruns: %lu | Overruns: %lu | Dropped: %lu | Rebuffer: %lu | DMA switches: %lu | DMA A/B: %u/%u | running=%u rebuffering=%u\n",
+           stats.buffered_samples, AUDIO_BUFFER_SIZE, stats.free_samples,
+           stats.min_buffered_samples, stats.max_buffered_samples,
+           stats.underruns, stats.overruns, stats.dropped_samples,
+           stats.rebuffer_count, stats.dma_switch_count,
+           stats.dma_buffer_state[0], stats.dma_buffer_state[1],
+           stats.running ? 1u : 0u, stats.rebuffering ? 1u : 0u);
 
     // バッファ状態の警告
-    if (buffered < BUFFER_LOW_THRESHOLD) {
+    if (stats.buffered_samples < BUFFER_LOW_THRESHOLD) {
         printf("  WARNING: Buffer level low!\n");
-    } else if (buffered > BUFFER_HIGH_THRESHOLD) {
+    } else if (stats.buffered_samples > BUFFER_HIGH_THRESHOLD) {
         printf("  WARNING: Buffer level high!\n");
     }
 }
@@ -139,6 +138,7 @@ int main(void) {
 
     // PCM データコールバックを設定
     bt_audio_set_pcm_callback(pcm_data_handler);
+    bt_audio_set_control_callback(bt_control_handler);
 
     printf("\n");
     printf("================================================\n");
@@ -162,6 +162,9 @@ int main(void) {
         // Bluetooth スタックの実行
         bt_audio_run();
 
+        // DMAバッファ補充など、割り込み外で実行するI2S処理
+        audio_out_i2s_process();
+
         // 接続状態の監視
         bool is_connected = bt_audio_is_connected();
 
@@ -182,6 +185,7 @@ int main(void) {
 #if ENABLE_DEBUG_LOG
         if (is_connected) {
             log_buffer_status();
+            bt_audio_debug_log_process();
         }
 #endif
 

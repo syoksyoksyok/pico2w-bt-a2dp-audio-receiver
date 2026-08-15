@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "config.h"
+
 /**
  * @brief I2S オーディオ出力を初期化
  * @param sample_rate サンプリングレート（Hz）
@@ -25,6 +27,11 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits_per_sample, uint8_t c
  * @return 書き込んだサンプル数
  */
 uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples);
+
+/**
+ * @brief DMAバッファ補充など、割り込み外で行うI2S処理
+ */
+void audio_out_i2s_process(void);
 
 /**
  * @brief バッファの空き容量を取得
@@ -59,5 +66,27 @@ void audio_out_i2s_clear_buffer(void);
  * @param overruns オーバーラン回数
  */
 void audio_out_i2s_get_stats(uint32_t *underruns, uint32_t *overruns);
+
+#if ENABLE_DEBUG_LOG
+typedef struct {
+    uint32_t buffered_samples;
+    uint32_t free_samples;
+    uint32_t min_buffered_samples;
+    uint32_t max_buffered_samples;
+    uint32_t underruns;
+    uint32_t overruns;
+    uint32_t dropped_samples;
+    uint32_t rebuffer_count;
+    uint32_t dma_switch_count;
+    uint8_t dma_buffer_state[2];
+    bool rebuffering;
+    bool running;
+} audio_out_i2s_debug_stats_t;
+
+/**
+ * @brief 表示用I2S統計を取得
+ */
+void audio_out_i2s_get_debug_stats(audio_out_i2s_debug_stats_t *stats);
+#endif
 
 #endif // AUDIO_OUT_I2S_H

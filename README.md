@@ -120,9 +120,57 @@ Ready! Waiting for Bluetooth connection...
 | `I2S_LRCLK_PIN` | `28` | I2S LRCLK |
 | `AUDIO_BUFFER_SIZE` | 1 秒分 | 受信揺らぎ吸収用リングバッファ |
 | `AUTO_START_THRESHOLD` | 約 33% | 再生開始までに貯めるバッファ量 |
-| `SOFTWARE_VOLUME_PERCENT` | `85` | クリッピング防止用のソフトウェア音量 |
+| `REBUFFER_THRESHOLD` | `AUTO_START_THRESHOLD` | アンダーラン後に再開するまでに貯めるバッファ量 |
+| `PICO_A2DP_ENABLE_DEBUG_LOG` | `OFF` | 表示用デバッグログとSBC実パラメータ解析を有効化 |
+| `SOFTWARE_VOLUME_PERCENT` | `70` | 後段のクリッピングを避けるためのソフトウェア音量 |
 
 現在の A2DP / I2S 設定は 44.1kHz 前提です。48kHz へ変更する場合は、`config.h` だけでなく `src/bt_audio.c` の SBC capability と I2S 関連計算も合わせて変更してください。
+
+### SBC bitpool
+
+このA2DP Sinkは、SBC capabilityとして44.1kHz、Stereo / Joint Stereo、bitpool最小値2、最大値53を通知します。
+
+bitpoolは音量ではなく、SBC圧縮で1フレームに割り当てる情報量に関係する値です。最大53を通知しても常に53で送信されるわけではありません。実際のbitpoolは、スマホやPCなど送信側とのネゴシエーションと送信側の実装で決まります。このプロジェクトはAAC、aptX、LDAC、SBC XQ、Dual Channelによる非標準高ビットレート化は行わず、標準SBCの範囲で互換性を優先します。
+
+### ソフトウェア音量
+
+`SOFTWARE_VOLUME_PERCENT`の初期値は70%です。スマホ側の音量を最大付近にしたとき、後段のアンプや入力回路でクリップしにくくするためで、100%にはしていません。音量処理は32bit整数で計算し、正負のサンプルをできるだけ対称に扱う最近傍丸めを使います。TPDFディザ、ノイズシェーピング、EQ、コンプレッサー、リミッターは入れていません。
+
+### DMA、バッファ、再バッファリング
+
+I2S出力は従来どおりPIO + 1本のDMAチャンネル + 2個のDMAバッファで動作します。DMA完了割り込みでは、完了バッファを空状態にし、準備済みの次バッファへ切り替える処理だけを行います。512ステレオペア分のDMAバッファ補充はメインループ側の`audio_out_i2s_process()`で行い、割り込み内の処理量を抑えています。
+
+リングバッファとDMAバッファの単位はステレオペア数です。`DMA_BUFFER_SIZE`は1個のDMAバッファに入るステレオペア数、`AUDIO_BUFFER_SIZE`はリングバッファに保持するステレオペア数です。バッファを大きくすると受信揺らぎには強くなりますが、再生開始や復帰までの遅延が増えます。
+
+リングバッファが空になると無音を出力し、再バッファリング状態に入ります。`REBUFFER_THRESHOLD`以上の音声がリングバッファへ貯まるまで実音の出力を再開しないため、無音と少量の実音が細かく交互に出る状態を避けます。しきい値を大きくすると音切れには強くなりますが、途切れ後の再開遅延は増えます。
+
+DMAまわりの変更は音切れやプチノイズを防ぐための安定性改善です。正常に連続再生できている場合、DMA方式の改善によって周波数特性やBluetoothのSBC圧縮音質そのものが改善するわけではありません。
+
+### デバッグログ
+
+通常運転の既定値は`ENABLE_DEBUG_LOG=0`です。この状態では、表示用ログだけでなく、SBC実パラメータ解析、表示専用カウンター、最小/最大値記録、状態比較、ログ文字列生成、デバッグ専用タイマー、デバッグ専用メモリ領域がプリプロセッサで除外されます。
+
+デバッグを有効にする場合はCMake構成時に以下を指定します。
+
+```bash
+cmake -S . -B build-debug -DPICO_A2DP_ENABLE_DEBUG_LOG=ON
+cmake --build build-debug
+```
+
+デバッグ有効時はUSBシリアルで以下を確認できます。ログはメインループ側で一定間隔にまとめて出力され、毎パケット、毎SBCフレーム、毎PCMコールバック、毎DMA割り込みでは出力しません。
+
+- 実際のSBC bitpool、サンプリング周波数、チャンネルモード、blocks、subbands、allocation method
+- SBCフレーム解析エラー回数
+- リングバッファ使用量、最小値、最大値、空き容量
+- アンダーラン回数、オーバーラン回数、ドロップしたPCMステレオペア数
+- 再バッファリング回数
+- DMAバッファA/Bの状態、DMA切り替え回数
+
+デバッグ有効時は通常運転よりCPU負荷、USBシリアル出力、フラッシュ/SRAM使用量が増える可能性があります。長時間の通常再生では`PICO_A2DP_ENABLE_DEBUG_LOG=OFF`を推奨します。
+
+### 接続切り替え
+
+端末Aが接続中でも、端末Bから接続要求が来た場合は端末Aを切断し、後から要求した端末Bへ切り替える動作を維持しています。切り替え開始、ストリーム停止、ストリーム解放、A2DP切断、新ストリーム開始前にはI2S DMAとリングバッファを停止・クリアし、旧端末の音声が新しい接続へ混入しないようにします。古い接続の遅延イベントは現在のA2DP CIDと一致する場合だけ処理します。
 
 ## トラブルシューティング
 
@@ -179,7 +227,7 @@ Ready! Waiting for Bluetooth connection...
 主な現在値:
 
 - Bluetooth: Classic A2DP Sink
-- SBC: 44.1kHz, Stereo / Joint Stereo, bitpool max 35
+- SBC: 44.1kHz, Stereo / Joint Stereo, bitpool min 2 / max 53
 - PCM: 16bit stereo
 - I2S BCLK: 1.4112 MHz at 44.1kHz / 16bit / stereo
 - I2S PIO: 64 cycles / stereo sample

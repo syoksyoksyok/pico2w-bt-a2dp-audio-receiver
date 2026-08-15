@@ -120,9 +120,19 @@ Main user settings are in [src/config.h](src/config.h).
 | `I2S_LRCLK_PIN` | `28` | I2S LRCLK |
 | `AUDIO_BUFFER_SIZE` | 1 second | Ring buffer for Bluetooth receive jitter |
 | `AUTO_START_THRESHOLD` | about 33% | Buffer level required before playback starts |
-| `SOFTWARE_VOLUME_PERCENT` | `85` | Software volume used to reduce clipping |
+| `REBUFFER_THRESHOLD` | `AUTO_START_THRESHOLD` | Buffer level required before resuming after underrun |
+| `PICO_A2DP_ENABLE_DEBUG_LOG` | `OFF` | Enables SBC parameter and buffer debug logs |
+| `SOFTWARE_VOLUME_PERCENT` | `70` | Software volume used to reduce downstream clipping |
 
 The current A2DP / I2S configuration assumes 44.1 kHz. To change to 48 kHz, update not only `config.h` but also the SBC capability in `src/bt_audio.c` and the I2S-related calculations.
+
+The SBC capability advertises bitpool min 2 and max 53 for standard SBC at 44.1 kHz Stereo / Joint Stereo. Bitpool is not volume; it relates to the amount of information used by SBC compression. The actual bitpool is selected by negotiation with the source device, so advertising max 53 does not guarantee that every phone or PC will transmit at 53.
+
+`SOFTWARE_VOLUME_PERCENT` remains 70% to reduce clipping in downstream audio equipment when the source device volume is high. The scaling uses 32-bit integer math with nearest rounding that treats positive and negative samples symmetrically.
+
+The I2S output still uses one DMA channel with two DMA buffers. The DMA IRQ only switches to the next prepared buffer or silence; refilling 512 stereo samples is handled outside the IRQ by the main loop. After an underrun, playback stays silent until `REBUFFER_THRESHOLD` stereo samples have accumulated, which avoids rapid alternation between silence and short bursts of audio. Larger buffer thresholds improve dropout tolerance but increase restart latency.
+
+When `PICO_A2DP_ENABLE_DEBUG_LOG=ON`, USB serial logs include actual SBC bitpool, sample rate, channel mode, blocks, subbands, allocation method, SBC parse errors, ring buffer min/max/current usage, underruns, overruns, dropped stereo samples, rebuffer count, and DMA buffer states. With the default OFF setting, display-only SBC parsing, debug counters, state comparisons, strings, timers, and debug-only memory are excluded by the preprocessor.
 
 ## Troubleshooting
 
@@ -181,7 +191,7 @@ Phone
 Current main settings:
 
 - Bluetooth: Classic A2DP Sink
-- SBC: 44.1 kHz, Stereo / Joint Stereo, bitpool max 35
+- SBC: 44.1 kHz, Stereo / Joint Stereo, bitpool min 2 / max 53
 - PCM: 16-bit stereo
 - I2S BCLK: 1.4112 MHz at 44.1 kHz / 16-bit / stereo
 - I2S PIO: 64 cycles / stereo sample

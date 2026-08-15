@@ -47,14 +47,33 @@ static volatile uint32_t buffered_samples = 0;  // ステレオペア数
 // DMA IRQ優先度を0xFF（最低）に設定済みなので、Bluetooth処理を妨害しない
 #define I2S_DMA_BUFFER_SIZE DMA_BUFFER_SIZE
 static int32_t dma_buffer[2][I2S_DMA_BUFFER_SIZE];  // 32ビット（左右16ビットずつ）
-static volatile uint8_t current_dma_buffer = 0;
+static int32_t silence_dma_buffer[I2S_DMA_BUFFER_SIZE];
+
+typedef enum {
+    DMA_BUFFER_EMPTY = 0,
+    DMA_BUFFER_READY,
+    DMA_BUFFER_IN_DMA
+} dma_buffer_state_t;
+
+static volatile dma_buffer_state_t dma_buffer_state[2] = {DMA_BUFFER_EMPTY, DMA_BUFFER_EMPTY};
+static volatile uint8_t current_dma_buffer = 0xffu;
+static volatile uint8_t dma_refill_mask = 0;
 
 // 統計情報
 static volatile uint32_t underrun_count = 0;
 static volatile uint32_t overrun_count = 0;
+static volatile bool rebuffering = false;
 
 // 状態
 static volatile bool is_running = false;
+
+#if ENABLE_DEBUG_LOG
+static volatile uint32_t min_buffered_samples = UINT32_MAX;
+static volatile uint32_t max_buffered_samples = 0;
+static volatile uint32_t dropped_stereo_samples = 0;
+static volatile uint32_t rebuffer_count = 0;
+static volatile uint32_t dma_switch_count = 0;
+#endif
 
 // ============================================================================
 // 内部関数（前方宣言）
@@ -62,47 +81,33 @@ static volatile bool is_running = false;
 
 static void dma_handler(void);
 static void fill_dma_buffer(int32_t *buffer, uint32_t num_samples);
-static bool ring_buffer_push_stereo(int16_t left, int16_t right);
-static bool ring_buffer_pop_stereo(int16_t *left, int16_t *right);
+static void mark_buffer_level_locked(uint32_t buffered);
+static void enter_rebuffering_locked(void);
 
 static inline uint32_t ring_buffer_capacity(void) {
     return I2S_BUFFER_SIZE / 2;
 }
 
-static bool ring_buffer_push_stereo(int16_t left, int16_t right) {
-    uint32_t save = save_and_disable_interrupts();
-
-    if (buffered_samples >= ring_buffer_capacity()) {
-        overrun_count++;
-        restore_interrupts(save);
-        return false;
+static void mark_buffer_level_locked(uint32_t buffered) {
+#if ENABLE_DEBUG_LOG
+    if (buffered < min_buffered_samples) {
+        min_buffered_samples = buffered;
     }
-
-    ring_buffer[write_pos * 2u] = left;
-    ring_buffer[write_pos * 2u + 1u] = right;
-    write_pos = (write_pos + 1u) % ring_buffer_capacity();
-    buffered_samples++;
-
-    restore_interrupts(save);
-    return true;
+    if (buffered > max_buffered_samples) {
+        max_buffered_samples = buffered;
+    }
+#else
+    (void)buffered;
+#endif
 }
 
-static bool ring_buffer_pop_stereo(int16_t *left, int16_t *right) {
-    uint32_t save = save_and_disable_interrupts();
-
-    if (buffered_samples == 0) {
-        underrun_count++;
-        restore_interrupts(save);
-        return false;
+static void enter_rebuffering_locked(void) {
+    if (!rebuffering) {
+        rebuffering = true;
+#if ENABLE_DEBUG_LOG
+        rebuffer_count++;
+#endif
     }
-
-    *left = ring_buffer[read_pos * 2u];
-    *right = ring_buffer[read_pos * 2u + 1u];
-    read_pos = (read_pos + 1u) % ring_buffer_capacity();
-    buffered_samples--;
-
-    restore_interrupts(save);
-    return true;
 }
 
 // ============================================================================
@@ -184,46 +189,43 @@ bool audio_out_i2s_init(uint32_t sample_rate, uint8_t bits, uint8_t channels) {
 uint32_t audio_out_i2s_write(const int16_t *pcm_data, uint32_t num_samples) {
     uint32_t samples_written = 0;
 
-    static uint32_t write_call_count = 0;
-    static uint32_t total_written = 0;
-#if ENABLE_DEBUG_LOG
-    uint32_t save = save_and_disable_interrupts();
-    uint32_t buffered_before = buffered_samples;
-    restore_interrupts(save);
-#endif
-
-    write_call_count++;
-
     // num_samplesはステレオペア数として扱う
-    for (uint32_t i = 0; i < num_samples; i++) {
-        if (!ring_buffer_push_stereo(pcm_data[i * 2u], pcm_data[i * 2u + 1u])) {
+    while (samples_written < num_samples) {
+        uint32_t save = save_and_disable_interrupts();
+        uint32_t free_samples = ring_buffer_capacity() - buffered_samples;
+
+        if (free_samples == 0) {
+            overrun_count++;
+#if ENABLE_DEBUG_LOG
+            dropped_stereo_samples += (num_samples - samples_written);
+#endif
+            restore_interrupts(save);
             break;
         }
-        samples_written++;
+
+        uint32_t contiguous = ring_buffer_capacity() - write_pos;
+        uint32_t chunk = num_samples - samples_written;
+        if (chunk > free_samples) {
+            chunk = free_samples;
+        }
+        if (chunk > contiguous) {
+            chunk = contiguous;
+        }
+        if (chunk > 64u) {
+            chunk = 64u;
+        }
+
+        memcpy(&ring_buffer[write_pos * 2u],
+               &pcm_data[samples_written * 2u],
+               chunk * 2u * sizeof(int16_t));
+
+        write_pos = (write_pos + chunk) % ring_buffer_capacity();
+        buffered_samples += chunk;
+        mark_buffer_level_locked(buffered_samples);
+        restore_interrupts(save);
+
+        samples_written += chunk;
     }
-
-    total_written += samples_written;
-
-    // 自動開始: バッファがある程度埋まったらDMAを開始
-    // buffered_samplesはステレオペア数なので、AUDIO_BUFFER_SIZEと比較
-    uint32_t save = save_and_disable_interrupts();
-    uint32_t buffered_after = buffered_samples;
-    restore_interrupts(save);
-
-    if (!is_running && buffered_after >= AUTO_START_THRESHOLD) {
-        float buffer_percent = (float)buffered_after * 100.0f / AUDIO_BUFFER_SIZE;
-        printf("[I2S] Auto-starting DMA (buffer: %lu/%u samples, %.1f%%)\n",
-               buffered_after, AUDIO_BUFFER_SIZE, buffer_percent);
-        audio_out_i2s_start();
-    }
-
-#if ENABLE_DEBUG_LOG
-    // N回ごとにログ出力（頻度はconfig.hで設定）
-    if (write_call_count % STATS_LOG_FREQUENCY == 0) {
-        printf("[I2S Write] Calls: %lu, Total written: %lu, Current buffer: %lu->%lu\n",
-               write_call_count, total_written, buffered_before, buffered_after);
-    }
-#endif
 
     return samples_written;
 }
@@ -251,6 +253,37 @@ uint32_t audio_out_i2s_get_buffered_samples(void) {
 }
 
 // ============================================================================
+// 割り込み外で行うI2S処理
+// ============================================================================
+
+void audio_out_i2s_process(void) {
+    uint32_t save = save_and_disable_interrupts();
+    bool should_start = !is_running && buffered_samples >= AUTO_START_THRESHOLD;
+    uint8_t refill_mask = dma_refill_mask;
+    dma_refill_mask = 0;
+    restore_interrupts(save);
+
+    if (should_start) {
+        audio_out_i2s_start();
+        return;
+    }
+
+    for (uint8_t i = 0; i < 2u; i++) {
+        if ((refill_mask & (1u << i)) == 0) {
+            continue;
+        }
+
+        fill_dma_buffer(dma_buffer[i], I2S_DMA_BUFFER_SIZE);
+
+        save = save_and_disable_interrupts();
+        if (dma_buffer_state[i] == DMA_BUFFER_EMPTY) {
+            dma_buffer_state[i] = DMA_BUFFER_READY;
+        }
+        restore_interrupts(save);
+    }
+}
+
+// ============================================================================
 // オーディオ出力を開始
 // ============================================================================
 
@@ -262,6 +295,8 @@ void audio_out_i2s_start(void) {
     // ピンポンバッファ: 両方のバッファを事前に埋める（これが重要！）
     fill_dma_buffer(dma_buffer[0], I2S_DMA_BUFFER_SIZE);
     fill_dma_buffer(dma_buffer[1], I2S_DMA_BUFFER_SIZE);
+    dma_buffer_state[0] = DMA_BUFFER_IN_DMA;
+    dma_buffer_state[1] = DMA_BUFFER_READY;
     current_dma_buffer = 0;
     printf("  Both DMA buffers pre-filled\n");
 
@@ -294,6 +329,14 @@ void audio_out_i2s_stop(void) {
 
     // PIO State Machineを停止
     pio_sm_set_enabled(pio, sm, false);
+    pio_sm_clear_fifos(pio, sm);
+
+    dma_channel_acknowledge_irq0(dma_channel);
+
+    dma_buffer_state[0] = DMA_BUFFER_EMPTY;
+    dma_buffer_state[1] = DMA_BUFFER_EMPTY;
+    dma_refill_mask = 0;
+    current_dma_buffer = 0xffu;
 
     is_running = false;
     printf("I2S audio output stopped\n");
@@ -314,6 +357,18 @@ void audio_out_i2s_clear_buffer(void) {
     buffered_samples = 0;
     underrun_count = 0;
     overrun_count = 0;
+    rebuffering = false;
+    dma_buffer_state[0] = DMA_BUFFER_EMPTY;
+    dma_buffer_state[1] = DMA_BUFFER_EMPTY;
+    dma_refill_mask = 0;
+    current_dma_buffer = 0xffu;
+#if ENABLE_DEBUG_LOG
+    min_buffered_samples = UINT32_MAX;
+    max_buffered_samples = 0;
+    dropped_stereo_samples = 0;
+    rebuffer_count = 0;
+    dma_switch_count = 0;
+#endif
     restore_interrupts(save);
 
     // 無音で埋める
@@ -335,21 +390,82 @@ void audio_out_i2s_get_stats(uint32_t *underruns, uint32_t *overruns) {
     if (overruns) *overruns = overrun_snapshot;
 }
 
+#if ENABLE_DEBUG_LOG
+void audio_out_i2s_get_debug_stats(audio_out_i2s_debug_stats_t *stats) {
+    if (!stats) {
+        return;
+    }
+
+    uint32_t save = save_and_disable_interrupts();
+    stats->buffered_samples = buffered_samples;
+    stats->free_samples = ring_buffer_capacity() - buffered_samples;
+    stats->min_buffered_samples = (min_buffered_samples == UINT32_MAX) ? buffered_samples : min_buffered_samples;
+    stats->max_buffered_samples = max_buffered_samples;
+    stats->underruns = underrun_count;
+    stats->overruns = overrun_count;
+    stats->dropped_samples = dropped_stereo_samples;
+    stats->rebuffer_count = rebuffer_count;
+    stats->dma_switch_count = dma_switch_count;
+    stats->dma_buffer_state[0] = (uint8_t)dma_buffer_state[0];
+    stats->dma_buffer_state[1] = (uint8_t)dma_buffer_state[1];
+    stats->rebuffering = rebuffering;
+    stats->running = is_running;
+    restore_interrupts(save);
+}
+#endif
+
 // ============================================================================
 // DMA バッファを埋める
 // ============================================================================
 
 static void fill_dma_buffer(int32_t *buffer, uint32_t num_samples) {
-    for (uint32_t i = 0; i < num_samples; i++) {
-        int16_t left;
-        int16_t right;
-        if (ring_buffer_pop_stereo(&left, &right)) {
-            // 32ビットワードにパック（上位16ビット=左、下位16ビット=右）
-            buffer[i] = ((uint32_t)(uint16_t)left << 16) | (uint16_t)right;
-        } else {
-            // データがない場合は無音を出力（アンダーラン）
-            buffer[i] = 0;
+    uint32_t filled = 0;
+
+    while (filled < num_samples) {
+        uint32_t save = save_and_disable_interrupts();
+
+        if (rebuffering) {
+            if (buffered_samples < REBUFFER_THRESHOLD) {
+                restore_interrupts(save);
+                memset(&buffer[filled], 0, (num_samples - filled) * sizeof(int32_t));
+                return;
+            }
+            rebuffering = false;
         }
+
+        if (buffered_samples == 0) {
+            underrun_count++;
+            enter_rebuffering_locked();
+            restore_interrupts(save);
+            memset(&buffer[filled], 0, (num_samples - filled) * sizeof(int32_t));
+            return;
+        }
+
+        uint32_t contiguous = ring_buffer_capacity() - read_pos;
+        uint32_t chunk = num_samples - filled;
+        if (chunk > buffered_samples) {
+            chunk = buffered_samples;
+        }
+        if (chunk > contiguous) {
+            chunk = contiguous;
+        }
+        if (chunk > 64u) {
+            chunk = 64u;
+        }
+
+        for (uint32_t i = 0; i < chunk; i++) {
+            uint32_t src = (read_pos + i) * 2u;
+            int16_t left = ring_buffer[src];
+            int16_t right = ring_buffer[src + 1u];
+            buffer[filled + i] = ((uint32_t)(uint16_t)left << 16) | (uint16_t)right;
+        }
+
+        read_pos = (read_pos + chunk) % ring_buffer_capacity();
+        buffered_samples -= chunk;
+        mark_buffer_level_locked(buffered_samples);
+        restore_interrupts(save);
+
+        filled += chunk;
     }
 }
 
@@ -361,20 +477,43 @@ static void dma_handler(void) {
     if (dma_channel_get_irq0_status(dma_channel)) {
         dma_channel_acknowledge_irq0(dma_channel);
 
-        // ピンポンバッファの正しい実装:
-        // 1. 次のバッファ（すでに埋まっている）でDMAを即座に再開
-        // 2. 今終わったバッファを再充填（次回のために）
-        uint8_t finished_buffer = current_dma_buffer;
-        uint8_t next_buffer = 1 - current_dma_buffer;
+        if (current_dma_buffer < 2u) {
+            dma_buffer_state[current_dma_buffer] = DMA_BUFFER_EMPTY;
+            dma_refill_mask |= (uint8_t)(1u << current_dma_buffer);
+        }
 
-        // DMAを次のバッファで即座に再起動（遅延を最小化）
+        uint8_t next_buffer = 0xffu;
+        if (current_dma_buffer < 2u) {
+            uint8_t preferred = 1u - current_dma_buffer;
+            if (dma_buffer_state[preferred] == DMA_BUFFER_READY) {
+                next_buffer = preferred;
+            }
+        }
+        if (next_buffer == 0xffu) {
+            for (uint8_t i = 0; i < 2u; i++) {
+                if (dma_buffer_state[i] == DMA_BUFFER_READY) {
+                    next_buffer = i;
+                    break;
+                }
+            }
+        }
+
+        const int32_t *next_data = silence_dma_buffer;
+        if (next_buffer < 2u) {
+            dma_buffer_state[next_buffer] = DMA_BUFFER_IN_DMA;
+            next_data = dma_buffer[next_buffer];
+            current_dma_buffer = next_buffer;
+        } else {
+            underrun_count++;
+            enter_rebuffering_locked();
+            current_dma_buffer = 0xffu;
+        }
+
+        // DMAを次の準備済みバッファ、または無音バッファで即座に再起動
         dma_channel_set_trans_count(dma_channel, I2S_DMA_BUFFER_SIZE, false);
-        dma_channel_set_read_addr(dma_channel, dma_buffer[next_buffer], true);
-
-        // 終わったバッファを再充填（次回の使用のため）
-        fill_dma_buffer(dma_buffer[finished_buffer], I2S_DMA_BUFFER_SIZE);
-
-        // 現在のバッファインデックスを更新
-        current_dma_buffer = next_buffer;
+        dma_channel_set_read_addr(dma_channel, next_data, true);
+#if ENABLE_DEBUG_LOG
+        dma_switch_count++;
+#endif
     }
 }

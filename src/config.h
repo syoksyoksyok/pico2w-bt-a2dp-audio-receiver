@@ -58,6 +58,10 @@
 // 大きいほど開始遅延は増えるが、Bluetooth受信の揺らぎに強くなる
 #define AUTO_START_THRESHOLD (AUDIO_BUFFER_SIZE / 3)
 
+// アンダーラン後の再バッファリングしきい値（ステレオペア数）
+// 大きいほど音切れには強くなるが、途切れ後の再開遅延は増える
+#define REBUFFER_THRESHOLD   AUTO_START_THRESHOLD
+
 // バッファアンダーラン/オーバーラン検出の閾値
 #define BUFFER_LOW_THRESHOLD    (AUDIO_BUFFER_SIZE / 4)
 #define BUFFER_HIGH_THRESHOLD   (AUDIO_BUFFER_SIZE * 3 / 4)
@@ -67,7 +71,13 @@
 // ============================================================================
 
 // デバッグログを有効化
+#ifndef ENABLE_DEBUG_LOG
+#if PICO_A2DP_DEBUG_LOG
+#define ENABLE_DEBUG_LOG     1
+#else
 #define ENABLE_DEBUG_LOG     0
+#endif
+#endif
 
 // バッファ状態のログ出力間隔（ミリ秒）
 #define BUFFER_STATUS_LOG_INTERVAL_MS  10000

@@ -18,6 +18,8 @@ project(pico2w_bt_a2dp_receiver C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
+option(PICO_A2DP_ENABLE_DEBUG_LOG "Enable application debug logging" OFF)
+
 # Pico SDK を初期化
 pico_sdk_init()
 
@@ -65,6 +67,7 @@ pico_add_extra_outputs(pico2w_bt_a2dp_receiver)
 # コンパイル定義
 target_compile_definitions(pico2w_bt_a2dp_receiver PRIVATE
     CYW43_LWIP=0              # lwIPを無効化
+    PICO_A2DP_DEBUG_LOG=$<BOOL:${PICO_A2DP_ENABLE_DEBUG_LOG}>
 )
 
 # ビルドオプション（最適化）

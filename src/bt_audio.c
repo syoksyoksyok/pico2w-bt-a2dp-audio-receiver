@@ -11,6 +11,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
+#include "hardware/sync.h"
 
 #include "btstack.h"
 #include "btstack_sbc.h"
@@ -20,6 +21,7 @@
 // ============================================================================
 
 static pcm_data_callback_t pcm_callback = NULL;
+static bt_audio_control_callback_t control_callback = NULL;
 static bool is_connected = false;
 static bool media_streaming = false;
 static bd_addr_t active_address;
@@ -37,7 +39,7 @@ static btstack_sbc_mode_t sbc_mode = SBC_MODE_STANDARD;
 static uint8_t media_sbc_codec_capabilities[] = {
     (AVDTP_SBC_44100 << 4) | AVDTP_SBC_STEREO | AVDTP_SBC_JOINT_STEREO,  // 44.1kHz, Stereo/Joint Stereo
     0xFF,  // すべてのブロック長、サブバンド、割り当て方式をサポート
-    2, 35  // Min bitpool = 2, Max bitpool = 35（安定性優先）
+    2, 53  // Min bitpool = 2, Max bitpool = 53（標準SBCの範囲）
 };
 
 // SBC コーデック実際の設定（ネゴシエーション後に格納される）
@@ -47,6 +49,37 @@ static uint8_t media_sbc_codec_configuration[4];
 static uint8_t sdp_avdtp_sink_service_buffer[SDP_AVDTP_SINK_BUFFER_SIZE];
 static uint16_t a2dp_cid = 0;
 static uint8_t local_seid = 1;
+
+#if ENABLE_DEBUG_LOG
+#define SBC_DEBUG_PARSE_ERROR() do { sbc_debug_parse_errors++; } while (0)
+
+typedef struct {
+    bool valid;
+    uint8_t bitpool;
+    uint32_t sample_rate;
+    uint8_t channel_mode;
+    uint8_t blocks;
+    uint8_t subbands;
+    uint8_t allocation_method;
+} sbc_debug_params_t;
+
+static volatile sbc_debug_params_t sbc_debug_current;
+static volatile bool sbc_debug_changed = false;
+static volatile bool sbc_debug_first_frame_seen = false;
+static volatile uint32_t sbc_debug_parse_errors = 0;
+static volatile uint32_t sbc_debug_frames = 0;
+static volatile uint32_t media_packet_count = 0;
+static volatile uint32_t media_total_bytes = 0;
+static absolute_time_t last_sbc_debug_log_time;
+
+static bool parse_sbc_debug_frame(const uint8_t *frame, uint16_t size, sbc_debug_params_t *params, uint16_t *frame_length);
+static void update_sbc_debug_from_payload(const uint8_t *payload, uint16_t payload_size, uint8_t expected_frames);
+static void reset_sbc_debug_state(void);
+static const char *sbc_debug_channel_mode_name(uint8_t channel_mode);
+static const char *sbc_debug_allocation_name(uint8_t allocation_method);
+#else
+#define SBC_DEBUG_PARSE_ERROR() do { } while (0)
+#endif
 
 // ============================================================================
 // イベントハンドラー（前方宣言）
@@ -138,6 +171,10 @@ bool bt_audio_init(void) {
     printf("Waiting for connection...\n");
     printf("========================================\n\n");
 
+#if ENABLE_DEBUG_LOG
+    last_sbc_debug_log_time = get_absolute_time();
+#endif
+
     return true;
 }
 
@@ -178,6 +215,10 @@ void bt_audio_set_pcm_callback(pcm_data_callback_t callback) {
     pcm_callback = callback;
 }
 
+void bt_audio_set_control_callback(bt_audio_control_callback_t callback) {
+    control_callback = callback;
+}
+
 // ============================================================================
 // 接続奪い取りサポート
 // ============================================================================
@@ -202,6 +243,9 @@ static void disconnect_active_for_takeover(const bd_addr_t new_address, const ch
     }
 
     uint16_t old_cid = a2dp_cid;
+    if (control_callback) {
+        control_callback(BT_AUDIO_CONTROL_TAKEOVER_STARTED, old_cid);
+    }
     media_streaming = false;
     is_connected = false;
 
@@ -243,20 +287,9 @@ static void try_start_pending_takeover(void) {
 static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, int sample_rate, void *context) {
     UNUSED(context);
 
-    static uint32_t pcm_callback_count = 0;
-    pcm_callback_count++;
-
-#if ENABLE_DEBUG_LOG
-    // 最初の数回だけログ出力（デバッグ用）
-    if (pcm_callback_count <= INITIAL_PCM_LOG_COUNT) {
-        printf("[PCM] Received: %d samples, %d ch, %d Hz\n", num_samples, num_channels, sample_rate);
-    }
-#endif
-
     // サンプルレートの更新
     if (current_sample_rate != (uint32_t)sample_rate) {
         current_sample_rate = (uint32_t)sample_rate;
-        printf("Sample rate: %lu Hz\n", current_sample_rate);
     }
 
     // ソフトウェアボリューム調整（クリッピング防止）
@@ -265,10 +298,18 @@ static void handle_pcm_data(int16_t *data, int num_samples, int num_channels, in
         // num_samples はステレオペア数なので、実際のサンプル数は num_samples * num_channels
         int total_samples = num_samples * num_channels;
         for (int i = 0; i < total_samples; i++) {
-            // 音量を調整（オーバーフロー防止のため32ビットで計算）
-            int32_t sample = data[i];
-            sample = (sample * SOFTWARE_VOLUME_PERCENT) / 100;
-            data[i] = (int16_t)sample;
+            int32_t scaled = (int32_t)data[i] * (int32_t)SOFTWARE_VOLUME_PERCENT;
+            if (scaled >= 0) {
+                scaled = (scaled + 50) / 100;
+            } else {
+                scaled = (scaled - 50) / 100;
+            }
+            if (scaled > INT16_MAX) {
+                scaled = INT16_MAX;
+            } else if (scaled < INT16_MIN) {
+                scaled = INT16_MIN;
+            }
+            data[i] = (int16_t)scaled;
         }
     }
     #endif
@@ -327,6 +368,9 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     cid = a2dp_subevent_signaling_connection_released_get_a2dp_cid(packet);
                     printf("A2DP connection released (CID: 0x%04x)\n", cid);
                     if (cid == a2dp_cid) {
+                        if (control_callback) {
+                            control_callback(BT_AUDIO_CONTROL_CONNECTION_RELEASED, cid);
+                        }
                         a2dp_cid = 0;
                         is_connected = false;
                         media_streaming = false;
@@ -356,6 +400,12 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     }
 
                     printf("Stream established: %s (CID: 0x%04x)\n", bd_addr_to_str(address), cid);
+                    if (control_callback) {
+                        control_callback(BT_AUDIO_CONTROL_STREAM_STARTING, cid);
+                    }
+#if ENABLE_DEBUG_LOG
+                    reset_sbc_debug_state();
+#endif
                     memcpy(active_address, address, sizeof(bd_addr_t));
                     active_address_valid = true;
                     is_connected = true;
@@ -365,6 +415,12 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                 case A2DP_SUBEVENT_STREAM_STARTED:
                     cid = a2dp_subevent_stream_started_get_a2dp_cid(packet);
                     if (cid == a2dp_cid) {
+                        if (control_callback) {
+                            control_callback(BT_AUDIO_CONTROL_STREAM_STARTING, cid);
+                        }
+#if ENABLE_DEBUG_LOG
+                        reset_sbc_debug_state();
+#endif
                         media_streaming = true;
                         printf("Stream started - Audio playback begins (CID: 0x%04x)\n", cid);
                     }
@@ -373,6 +429,9 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                 case A2DP_SUBEVENT_STREAM_SUSPENDED:
                     cid = a2dp_subevent_stream_suspended_get_a2dp_cid(packet);
                     if (cid == a2dp_cid) {
+                        if (control_callback) {
+                            control_callback(BT_AUDIO_CONTROL_STREAM_STOPPED, cid);
+                        }
                         media_streaming = false;
                         printf("Stream suspended - Audio playback paused (CID: 0x%04x)\n", cid);
                     }
@@ -382,6 +441,9 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel, uint
                     cid = a2dp_subevent_stream_released_get_a2dp_cid(packet);
                     printf("Stream released (CID: 0x%04x)\n", cid);
                     if (cid == a2dp_cid) {
+                        if (control_callback) {
+                            control_callback(BT_AUDIO_CONTROL_STREAM_RELEASED, cid);
+                        }
                         is_connected = false;
                         media_streaming = false;
                     }
@@ -467,13 +529,13 @@ static void packet_handler(uint8_t packet_type, uint16_t channel, uint8_t *packe
 
 static bool get_sbc_payload(uint8_t *packet, uint16_t size, uint8_t **payload, uint16_t *payload_size, uint8_t *num_frames) {
     if (size < 13) {
-        printf("[MEDIA] ERROR: Packet too small (%u bytes)\n", size);
+        SBC_DEBUG_PARSE_ERROR();
         return false;
     }
 
     uint8_t rtp_version = packet[0] >> 6;
     if (rtp_version != 2) {
-        printf("[MEDIA] ERROR: Unsupported RTP version %u\n", rtp_version);
+        SBC_DEBUG_PARSE_ERROR();
         return false;
     }
 
@@ -483,19 +545,19 @@ static bool get_sbc_payload(uint8_t *packet, uint16_t size, uint8_t **payload, u
 
     uint32_t pos = 12u + ((uint32_t)csrc_count * 4u);
     if (pos > size) {
-        printf("[MEDIA] ERROR: Invalid RTP CSRC count %u for packet size %u\n", csrc_count, size);
+        SBC_DEBUG_PARSE_ERROR();
         return false;
     }
 
     if (has_extension) {
         if ((uint32_t)size - pos < 4u) {
-            printf("[MEDIA] ERROR: Truncated RTP extension header\n");
+            SBC_DEBUG_PARSE_ERROR();
             return false;
         }
         uint16_t extension_words = big_endian_read_16(packet, pos + 2u);
         pos += 4u + ((uint32_t)extension_words * 4u);
         if (pos > size) {
-            printf("[MEDIA] ERROR: RTP extension exceeds packet size\n");
+            SBC_DEBUG_PARSE_ERROR();
             return false;
         }
     }
@@ -504,14 +566,14 @@ static bool get_sbc_payload(uint8_t *packet, uint16_t size, uint8_t **payload, u
     if (has_padding) {
         uint8_t padding_len = packet[size - 1u];
         if (padding_len == 0 || padding_len > end - pos) {
-            printf("[MEDIA] ERROR: Invalid RTP padding length %u\n", padding_len);
+            SBC_DEBUG_PARSE_ERROR();
             return false;
         }
         end -= padding_len;
     }
 
     if (end - pos < 1u) {
-        printf("[MEDIA] ERROR: Missing SBC codec header\n");
+        SBC_DEBUG_PARSE_ERROR();
         return false;
     }
 
@@ -519,12 +581,12 @@ static bool get_sbc_payload(uint8_t *packet, uint16_t size, uint8_t **payload, u
     *num_frames = sbc_header & 0x0f;
 
     if (*num_frames == 0) {
-        printf("[MEDIA] ERROR: SBC packet reports zero frames\n");
+        SBC_DEBUG_PARSE_ERROR();
         return false;
     }
 
     if (pos >= end) {
-        printf("[MEDIA] ERROR: Missing SBC frame data\n");
+        SBC_DEBUG_PARSE_ERROR();
         return false;
     }
 
@@ -532,6 +594,169 @@ static bool get_sbc_payload(uint8_t *packet, uint16_t size, uint8_t **payload, u
     *payload_size = (uint16_t)(end - pos);
     return true;
 }
+
+#if ENABLE_DEBUG_LOG
+static bool parse_sbc_debug_frame(const uint8_t *frame, uint16_t size, sbc_debug_params_t *params, uint16_t *frame_length) {
+    if (size < 4u || !params || !frame_length) {
+        SBC_DEBUG_PARSE_ERROR();
+        return false;
+    }
+    if (frame[0] != 0x9cu) {
+        SBC_DEBUG_PARSE_ERROR();
+        return false;
+    }
+
+    static const uint32_t sample_rates[] = {16000u, 32000u, 44100u, 48000u};
+    static const uint8_t blocks_by_index[] = {4u, 8u, 12u, 16u};
+
+    uint8_t frequency_index = (frame[1] >> 6) & 0x03u;
+    uint8_t blocks_index = (frame[1] >> 4) & 0x03u;
+    uint8_t channel_mode = (frame[1] >> 2) & 0x03u;
+    uint8_t allocation_method = (frame[1] >> 1) & 0x01u;
+    uint8_t subbands = (frame[1] & 0x01u) ? 8u : 4u;
+    uint8_t bitpool = frame[2];
+    uint8_t channels = (channel_mode == 0u) ? 1u : 2u;
+    uint8_t blocks = blocks_by_index[blocks_index];
+
+    if (bitpool == 0u) {
+        SBC_DEBUG_PARSE_ERROR();
+        return false;
+    }
+
+    uint32_t length = 4u + ((4u * subbands * channels) + 7u) / 8u;
+    if (channel_mode == 0u || channel_mode == 1u) {
+        length += ((uint32_t)blocks * channels * bitpool + 7u) / 8u;
+    } else if (channel_mode == 2u) {
+        length += ((uint32_t)blocks * bitpool + 7u) / 8u;
+    } else {
+        length += (subbands + ((uint32_t)blocks * bitpool) + 7u) / 8u;
+    }
+
+    if (length > size || length > UINT16_MAX) {
+        SBC_DEBUG_PARSE_ERROR();
+        return false;
+    }
+
+    params->valid = true;
+    params->bitpool = bitpool;
+    params->sample_rate = sample_rates[frequency_index];
+    params->channel_mode = channel_mode;
+    params->blocks = blocks;
+    params->subbands = subbands;
+    params->allocation_method = allocation_method;
+    *frame_length = (uint16_t)length;
+    return true;
+}
+
+static void update_sbc_debug_from_payload(const uint8_t *payload, uint16_t payload_size, uint8_t expected_frames) {
+    uint16_t pos = 0;
+    uint8_t parsed_frames = 0;
+
+    while (parsed_frames < expected_frames && pos < payload_size) {
+        sbc_debug_params_t params = {0};
+        uint16_t frame_length = 0;
+        if (!parse_sbc_debug_frame(payload + pos, (uint16_t)(payload_size - pos), &params, &frame_length)) {
+            return;
+        }
+
+        uint32_t save = save_and_disable_interrupts();
+        bool changed = !sbc_debug_current.valid ||
+                       sbc_debug_current.bitpool != params.bitpool ||
+                       sbc_debug_current.sample_rate != params.sample_rate ||
+                       sbc_debug_current.channel_mode != params.channel_mode ||
+                       sbc_debug_current.blocks != params.blocks ||
+                       sbc_debug_current.subbands != params.subbands ||
+                       sbc_debug_current.allocation_method != params.allocation_method;
+
+        sbc_debug_current = params;
+        sbc_debug_frames++;
+        if (!sbc_debug_first_frame_seen || changed) {
+            sbc_debug_first_frame_seen = true;
+            sbc_debug_changed = true;
+        }
+        restore_interrupts(save);
+
+        pos = (uint16_t)(pos + frame_length);
+        parsed_frames++;
+    }
+
+    if (parsed_frames != expected_frames) {
+        SBC_DEBUG_PARSE_ERROR();
+    }
+}
+
+static void reset_sbc_debug_state(void) {
+    uint32_t save = save_and_disable_interrupts();
+    memset((void *)&sbc_debug_current, 0, sizeof(sbc_debug_current));
+    sbc_debug_changed = false;
+    sbc_debug_first_frame_seen = false;
+    sbc_debug_parse_errors = 0;
+    sbc_debug_frames = 0;
+    media_packet_count = 0;
+    media_total_bytes = 0;
+    last_sbc_debug_log_time = get_absolute_time();
+    restore_interrupts(save);
+}
+
+static const char *sbc_debug_channel_mode_name(uint8_t channel_mode) {
+    switch (channel_mode) {
+        case 0: return "Mono";
+        case 1: return "Dual Channel";
+        case 2: return "Stereo";
+        case 3: return "Joint Stereo";
+        default: return "Unknown";
+    }
+}
+
+static const char *sbc_debug_allocation_name(uint8_t allocation_method) {
+    return allocation_method ? "Loudness" : "SNR";
+}
+
+void bt_audio_debug_log_process(void) {
+    absolute_time_t now = get_absolute_time();
+    bool print_change = false;
+    bool print_stats = false;
+    sbc_debug_params_t params = {0};
+    uint32_t frames = 0;
+    uint32_t errors = 0;
+    uint32_t packets = 0;
+    uint32_t bytes = 0;
+
+    uint32_t save = save_and_disable_interrupts();
+    if (sbc_debug_changed) {
+        sbc_debug_changed = false;
+        print_change = true;
+    }
+    int64_t elapsed_ms = absolute_time_diff_us(last_sbc_debug_log_time, now) / 1000;
+    if (elapsed_ms >= BUFFER_STATUS_LOG_INTERVAL_MS) {
+        last_sbc_debug_log_time = now;
+        print_stats = true;
+    }
+    params = sbc_debug_current;
+    frames = sbc_debug_frames;
+    errors = sbc_debug_parse_errors;
+    packets = media_packet_count;
+    bytes = media_total_bytes;
+    restore_interrupts(save);
+
+    if ((print_change || print_stats) && params.valid) {
+        printf("[SBC] bitpool=%u, rate=%lu Hz, mode=%s, blocks=%u, subbands=%u, alloc=%s, frames=%lu, parse_errors=%lu\n",
+               params.bitpool,
+               params.sample_rate,
+               sbc_debug_channel_mode_name(params.channel_mode),
+               params.blocks,
+               params.subbands,
+               sbc_debug_allocation_name(params.allocation_method),
+               frames,
+               errors);
+    }
+
+    if (print_stats && packets > 0u) {
+        printf("[MEDIA] packets=%lu, bytes=%lu, avg_payload=%lu, sbc_parse_errors=%lu\n",
+               packets, bytes, bytes / packets, errors);
+    }
+}
+#endif
 
 // ============================================================================
 // A2DP Sink メディアパケットハンドラー（音声データを受信・デコード）
@@ -544,9 +769,6 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
         return;
     }
 
-    static uint32_t media_packet_count = 0;
-    static uint32_t media_total_bytes = 0;
-
     uint8_t *sbc_payload = NULL;
     uint16_t sbc_payload_size = 0;
     uint8_t sbc_num_frames = 0;
@@ -555,21 +777,12 @@ static void a2dp_sink_media_packet_handler(uint8_t seid, uint8_t *packet, uint16
         return;
     }
 
+#if ENABLE_DEBUG_LOG
+    uint32_t debug_save = save_and_disable_interrupts();
     media_packet_count++;
     media_total_bytes += sbc_payload_size;
-
-#if ENABLE_DEBUG_LOG
-    // 最初の数回だけログ出力（デバッグ用）
-    if (media_packet_count <= INITIAL_MEDIA_LOG_COUNT) {
-        printf("[MEDIA] Packet #%lu: size=%u, frames=%u, sbc_payload=%u\n",
-               media_packet_count, size, sbc_num_frames, sbc_payload_size);
-    }
-
-    // N回ごとに統計を表示（頻度はconfig.hで設定）
-    if (media_packet_count % STATS_LOG_FREQUENCY == 0) {
-        printf("[MEDIA Stats] Packets: %lu, Total bytes: %lu, Avg size: %lu\n",
-               media_packet_count, media_total_bytes, media_total_bytes / media_packet_count);
-    }
+    restore_interrupts(debug_save);
+    update_sbc_debug_from_payload(sbc_payload, sbc_payload_size, sbc_num_frames);
 #endif
 
     // SBCデコーダーにSBCフレームデータだけを渡す
